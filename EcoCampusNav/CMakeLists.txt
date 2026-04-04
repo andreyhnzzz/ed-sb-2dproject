@@ -12,8 +12,8 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 include(FetchContent)
 FetchContent_Declare(
     nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
-    DOWNLOAD_NO_EXTRACT TRUE
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -43,10 +43,9 @@ add_executable(EcoCampusNav ${SOURCES})
 
 target_include_directories(EcoCampusNav PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${nlohmann_json_SOURCE_DIR}
 )
 
-target_link_libraries(EcoCampusNav PRIVATE Qt6::Widgets)
+target_link_libraries(EcoCampusNav PRIVATE Qt6::Widgets nlohmann_json::nlohmann_json)
 
 configure_file(${CMAKE_SOURCE_DIR}/campus.json ${CMAKE_BINARY_DIR}/campus.json COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/settings.json ${CMAKE_BINARY_DIR}/settings.json COPYONLY)
