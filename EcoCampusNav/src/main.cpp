@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     std::string path = findCampusJson();
     if (path.empty()) {
         QMessageBox::critical(nullptr, "Error",
-            "No se encontro campus.json.\nColoque el archivo en el directorio de trabajo.");
+            "No se encontró campus.json.\nColoque el archivo en el directorio de trabajo.");
         return 1;
     }
 

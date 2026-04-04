@@ -55,7 +55,7 @@ void PathfindTab::onFindPath() {
 
     list_path_->clear();
     if (!result.found) {
-        lbl_total_->setText("No se encontro camino entre los nodos seleccionados.");
+        lbl_total_->setText("No se encontró camino entre los nodos seleccionados.");
         lbl_total_->setStyleSheet("color: red;");
         return;
     }

@@ -17,7 +17,7 @@ ScenarioTab::ScenarioTab(ScenarioManager& scenario, CampusMapView* mapView, QWid
 
     auto* grpST = new QGroupBox("Tipo de Estudiante");
     auto* stLayout = new QVBoxLayout(grpST);
-    rb_new_ = new QRadioButton("Estudiante Nuevo (rutas mas simples)");
+    rb_new_ = new QRadioButton("Estudiante Nuevo (rutas más simples)");
     rb_regular_ = new QRadioButton("Estudiante Regular");
     rb_regular_->setChecked(true);
     stLayout->addWidget(rb_new_);
