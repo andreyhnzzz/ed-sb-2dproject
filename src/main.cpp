@@ -94,6 +94,22 @@ static std::string findMapTmj(const char* argv0) {
     });
 }
 
+static std::string findCafeteriaPng(const char* argv0) {
+    return findPathCandidate(argv0, {
+        fs::path("assets/maps/Exteriorcafeteria.png"),
+        fs::path("../assets/maps/Exteriorcafeteria.png"),
+        fs::path("../../assets/maps/Exteriorcafeteria.png")
+    });
+}
+
+static std::string findCafeteriaTmj(const char* argv0) {
+    return findPathCandidate(argv0, {
+        fs::path("assets/maps/Exteriorcafeteria.tmj"),
+        fs::path("../assets/maps/Exteriorcafeteria.tmj"),
+        fs::path("../../assets/maps/Exteriorcafeteria.tmj")
+    });
+}
+
 static std::string findPlayerIdleSprite(const char* argv0) {
     return findPathCandidate(argv0, {
         fs::path("assets/sprites/m_Character/junior_AnguloIdle.png"),
@@ -197,6 +213,8 @@ static void drawMapWithHitboxes(const MapRenderData& mapData, bool showHitboxes)
         DrawRectangleLinesEx(h, 1.5f, Color{255, 80, 80, 220});
     }
 }
+
+enum SceneID { PARADA, CAFETERIA };
 
 static void clampCameraTarget(Camera2D& camera, const MapRenderData& mapData, int screenWidth, int screenHeight) {
     if (!mapData.hasTexture) return;
@@ -310,6 +328,15 @@ int main(int argc, char* argv[]) {
     const float minZoom = 1.2f;
     const float maxZoom = 4.0f;
 
+    // Scene transition state
+    SceneID currentScene = PARADA;
+    bool isTransitioning = false;
+    float fadeAlpha = 0.0f;
+    bool isFadingOut = false;  // true = black overlay is fading out (scene returning to visible)
+    // Exit trigger at the top edge of Paradadebus map (bus stop exit zone)
+    const Rectangle triggerZone{326.3f, 14.0f, 445.6f - 326.3f, 34.0f - 14.0f};
+    const float fadeRate = 1.0f / 1.25f;  // 1.25s per half (2.5s total)
+
     std::vector<std::string> nodeIds = graph.nodeIds();
     std::string defaultStart = nodeIds.empty() ? "" : nodeIds.front();
     std::string defaultEnd = nodeIds.size() > 1 ? nodeIds[1] : defaultStart;
@@ -381,6 +408,67 @@ int main(int argc, char* argv[]) {
         camera.target = playerPos;
         clampCameraTarget(camera, mapData, screenWidth, screenHeight);
 
+        // --- Scene transition trigger detection ---
+        if (!isTransitioning && currentScene == PARADA) {
+            if (CheckCollisionRecs(playerColliderAt(playerPos), triggerZone)) {
+                isTransitioning = true;
+                isFadingOut = false;
+                fadeAlpha = 0.0f;
+            }
+        }
+
+        // --- Fade update ---
+        if (isTransitioning) {
+            if (!isFadingOut) {
+                fadeAlpha += fadeRate * dt;
+                if (fadeAlpha >= 1.0f) {
+                    fadeAlpha = 1.0f;
+                    // Swap scene at peak blackness
+                    if (currentScene == PARADA) {
+                        if (mapData.hasTexture) {
+                            UnloadTexture(mapData.texture);
+                            mapData.texture = {};
+                            mapData.hasTexture = false;
+                        }
+                        mapData.hitboxes.clear();
+
+                        const std::string cafPng = findCafeteriaPng(argc > 0 ? argv[0] : nullptr);
+                        const std::string cafTmj = findCafeteriaTmj(argc > 0 ? argv[0] : nullptr);
+                        if (!cafPng.empty()) {
+                            mapData.texture = LoadTexture(cafPng.c_str());
+                            mapData.hasTexture = mapData.texture.id != 0;
+                        }
+                        if (!cafTmj.empty()) {
+                            try {
+                                mapData.hitboxes = loadHitboxesFromTmj(cafTmj);
+                            } catch (const std::exception& ex) {
+                                std::cerr << "No se pudo leer Exteriorcafeteria.tmj: " << ex.what() << "\n";
+                            }
+                        }
+
+                        // Spawn bottom-right of new map, 100px from each edge, facing left
+                        if (mapData.hasTexture) {
+                            playerPos.x = static_cast<float>(mapData.texture.width) - 100.0f;
+                            playerPos.y = static_cast<float>(mapData.texture.height) - 100.0f;
+                        }
+                        playerAnim.direction = 2; // left
+                        camera.target = playerPos;
+                        camera.zoom = 2.2f;
+                        clampCameraTarget(camera, mapData, screenWidth, screenHeight);
+                        currentScene = CAFETERIA;
+                    }
+                    isFadingOut = true;
+                }
+            } else {
+                fadeAlpha -= fadeRate * dt;
+                if (fadeAlpha <= 0.0f) {
+                    fadeAlpha = 0.0f;
+                    isTransitioning = false;
+                    isFadingOut = false;
+                }
+            }
+        }
+
         const bool isMoving = (moveX != 0.0f || moveY != 0.0f);
         if (isMoving) {
             playerAnim.timer += dt;
@@ -430,6 +518,12 @@ int main(int argc, char* argv[]) {
             DrawCircleV(playerPos, 8.0f, RED);
         }
         EndMode2D();
+
+        // --- Fade overlay ---
+        if (fadeAlpha > 0.0f) {
+            DrawRectangle(0, 0, screenWidth, screenHeight,
+                          Color{0, 0, 0, static_cast<unsigned char>(fadeAlpha * 255.0f)});
+        }
 
         const char* coordText = TextFormat("Pos: (%.1f, %.1f)", playerPos.x, playerPos.y);
         const int coordFontSize = 20;
