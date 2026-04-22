@@ -26,6 +26,12 @@ struct MapRenderData {
     std::vector<Rectangle> hitboxes;
 };
 
+struct SceneData {
+    Texture2D texture{};
+    std::vector<Rectangle> hitboxes;
+    bool isValid{false};
+};
+
 struct SpriteAnim {
     Texture2D idle{};
     Texture2D walk{};
@@ -131,7 +137,6 @@ static std::vector<Rectangle> loadHitboxesFromTmj(const std::string& tmjPath) {
 
     for (const auto& layer : tmj["layers"]) {
         if (!layer.contains("type") || layer["type"] != "objectgroup") continue;
-        if (layer.contains("name") && layer["name"] != "Hitboxes") continue;
         if (!layer.contains("objects") || !layer["objects"].is_array()) continue;
 
         for (const auto& obj : layer["objects"]) {
@@ -282,15 +287,33 @@ int main(int argc, char* argv[]) {
         },
         {"Interiorcafeteria", "assets/maps/Interiorcafeteria.png", "assets/maps/Interiorcafeteria.tmj", {}},
         {"biblio",            "assets/maps/biblio.png",            "assets/maps/biblio.tmj",            {}},
-        {"piso1",             "assets/maps/piso 1.png",            "assets/maps/piso1colisiones.tmj",   {}},
-        {"piso2",             "assets/maps/piso2.png",             "assets/maps/piso2colisiones.tmj",   {}},
-        {"piso3",             "assets/maps/piso 3.png",            "assets/maps/piso3colisiones.tmj",   {}},
+        {"piso1",             "assets/maps/piso 1.png",            "assets/maps/piso1.tmj",             {}},
+        {"piso2",             "assets/maps/piso2.png",             "assets/maps/piso2.tmj",             {}},
+        {"piso3",             "assets/maps/piso 3.png",            "assets/maps/piso3.tmj",             {}},
         {"piso4",             "assets/maps/piso 4.png",            "assets/maps/piso 4.tmj",            {}},
-        {"piso5",             "assets/maps/piso 5.png",            "assets/maps/piso 5colisiones.tmj",  {}},
+        {"piso5",             "assets/maps/piso 5.png",            "assets/maps/piso 5.tmj",            {}},
     };
 
     std::unordered_map<std::string, SceneConfig> sceneMap;
     for (const auto& sc : allScenes) sceneMap[sc.name] = sc;
+
+    // Pre-load hitboxes for all scenes into sceneDataMap
+    std::unordered_map<std::string, SceneData> sceneDataMap;
+    for (const auto& sc : allScenes) {
+        SceneData sd;
+        const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, sc.tmjPath);
+        if (!tmjPath.empty()) {
+            try {
+                sd.hitboxes = loadHitboxesFromTmj(tmjPath);
+                sd.isValid = true;
+            } catch (const std::exception& ex) {
+                std::cerr << "No se pudo leer " << sc.tmjPath << ": " << ex.what() << "\n";
+            }
+        } else {
+            std::cerr << "No se encontro " << sc.tmjPath << "\n";
+        }
+        sceneDataMap[sc.name] = std::move(sd);
+    }
 
     // Validate trigger target references at startup
     for (const auto& sc : allScenes) {
@@ -311,21 +334,15 @@ int main(int argc, char* argv[]) {
     {
         const auto& initConfig = sceneMap.at(initialSceneName);
         const std::string pngPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, initConfig.pngPath);
-        const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, initConfig.tmjPath);
         if (!pngPath.empty()) {
             mapData.texture = LoadTexture(pngPath.c_str());
             mapData.hasTexture = mapData.texture.id != 0;
         } else {
             std::cerr << "No se encontro " << initConfig.pngPath << "\n";
         }
-        if (!tmjPath.empty()) {
-            try {
-                mapData.hitboxes = loadHitboxesFromTmj(tmjPath);
-            } catch (const std::exception& ex) {
-                std::cerr << "No se pudo leer " << initConfig.tmjPath << ": " << ex.what() << "\n";
-            }
-        } else {
-            std::cerr << "No se encontro " << initConfig.tmjPath << "\n";
+        const auto sdIt = sceneDataMap.find(initialSceneName);
+        if (sdIt != sceneDataMap.end() && sdIt->second.isValid) {
+            mapData.hitboxes = sdIt->second.hitboxes;
         }
     }
 
@@ -487,17 +504,13 @@ int main(int argc, char* argv[]) {
                     const auto scIt = sceneMap.find(pendingTargetScene);
                     if (scIt != sceneMap.end()) {
                         const std::string pngPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, scIt->second.pngPath);
-                        const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, scIt->second.tmjPath);
                         if (!pngPath.empty()) {
                             mapData.texture = LoadTexture(pngPath.c_str());
                             mapData.hasTexture = mapData.texture.id != 0;
                         }
-                        if (!tmjPath.empty()) {
-                            try {
-                                mapData.hitboxes = loadHitboxesFromTmj(tmjPath);
-                            } catch (const std::exception& ex) {
-                                std::cerr << "No se pudo leer " << scIt->second.tmjPath << ": " << ex.what() << "\n";
-                            }
+                        const auto sdIt = sceneDataMap.find(pendingTargetScene);
+                        if (sdIt != sceneDataMap.end() && sdIt->second.isValid) {
+                            mapData.hitboxes = sdIt->second.hitboxes;
                         }
                         currentSceneName = pendingTargetScene;
                     }
