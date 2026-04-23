@@ -1,5 +1,5 @@
 #include "TransitionService.h"
-#include "imgui.h"
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -54,6 +54,13 @@ void TransitionService::update(const Rectangle& playerCollider,
     promptVisible_ = false;
     promptHint_.clear();
 
+    if (triggerLockUntilExit_) {
+        if (isCollidingWithSceneTrigger(playerCollider, currentScene)) {
+            return;
+        }
+        triggerLockUntilExit_ = false;
+    }
+
     // -----------------------------------------------------------------------
     // Portal triggers
     // -----------------------------------------------------------------------
@@ -107,11 +114,13 @@ void TransitionService::update(const Rectangle& playerCollider,
         if (elev.scene != currentScene) continue;
         if (!CheckCollisionRecs(playerCollider, elev.triggerRect)) continue;
 
-        promptVisible_     = true;
-        promptHint_        = "Presiona E para cambiar de piso";
+        promptVisible_ = true;
+        promptHint_    = "Presiona E para cambiar de piso";
         if (IsKeyPressed(KEY_E)) {
             showFloorMenu_     = true;
             activeElevatorIdx_ = i;
+            selectedFloorIdx_  = 0;
+            floorMenuConfirmArmed_ = false;
         }
         return;
     }
@@ -124,6 +133,7 @@ void TransitionService::update(const Rectangle& playerCollider,
 void TransitionService::notifySwapDone() {
     swapPending_ = false;
     phase_       = Phase::FADING_OUT;
+    triggerLockUntilExit_ = true;
 }
 
 bool TransitionService::isFading() const {
@@ -154,46 +164,109 @@ void TransitionService::drawFloorMenu() {
     }
 
     const auto& elev = elevators_[activeElevatorIdx_];
-    bool open = true;
+    if (elev.floors.empty()) {
+        showFloorMenu_     = false;
+        activeElevatorIdx_ = -1;
+        selectedFloorIdx_  = 0;
+        floorMenuConfirmArmed_ = false;
+        return;
+    }
 
-    ImGui::SetNextWindowSize(ImVec2(260, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(
-        ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f,
-               ImGui::GetIO().DisplaySize.y * 0.5f),
-        ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    const int floorCount = static_cast<int>(elev.floors.size());
+    selectedFloorIdx_ = std::clamp(selectedFloorIdx_, 0, floorCount - 1);
 
-    ImGui::Begin("Seleccionar piso", &open,
-                 ImGuiWindowFlags_NoResize   |
-                 ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoMove     |
-                 ImGuiWindowFlags_NoBringToFrontOnFocus);
+    if (IsKeyPressed(KEY_UP)) {
+        selectedFloorIdx_ = (selectedFloorIdx_ - 1 + floorCount) % floorCount;
+    } else if (IsKeyPressed(KEY_DOWN)) {
+        selectedFloorIdx_ = (selectedFloorIdx_ + 1) % floorCount;
+    }
 
-    ImGui::Text("Selecciona el piso al que deseas ir:");
-    ImGui::Separator();
+    for (int i = 0; i < std::min(9, floorCount); ++i) {
+        if (IsKeyPressed(KEY_ONE + i)) selectedFloorIdx_ = i;
+    }
 
-    for (const auto& entry : elev.floors) {
-        const char* lbl = entry.label.empty() ? entry.scene.c_str()
-                                              : entry.label.c_str();
-        if (ImGui::Button(lbl, ImVec2(-1.0f, 0.0f))) {
-            beginFadeIn(entry.scene, entry.spawnPos);
-            showFloorMenu_     = false;
-            activeElevatorIdx_ = -1;
+    if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACKSPACE)) {
+        showFloorMenu_     = false;
+        activeElevatorIdx_ = -1;
+        selectedFloorIdx_  = 0;
+        floorMenuConfirmArmed_ = false;
+        return;
+    }
+
+    if (!floorMenuConfirmArmed_) {
+        if (!IsKeyDown(KEY_E) && !IsKeyDown(KEY_ENTER)) {
+            floorMenuConfirmArmed_ = true;
         }
     }
 
-    ImGui::Separator();
-    if (ImGui::Button("Cancelar", ImVec2(-1.0f, 0.0f))) {
+    if (floorMenuConfirmArmed_ && (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_E))) {
+        const auto& entry = elev.floors[selectedFloorIdx_];
+        beginFadeIn(entry.scene, entry.spawnPos);
         showFloorMenu_     = false;
         activeElevatorIdx_ = -1;
+        selectedFloorIdx_  = 0;
+        floorMenuConfirmArmed_ = false;
+        return;
     }
 
-    ImGui::End();
+    const int screenW = GetScreenWidth();
+    const int screenH = GetScreenHeight();
+    const int panelW = 360;
+    const int panelHeaderH = 54;
+    const int rowH = 34;
+    const int panelH = panelHeaderH + floorCount * rowH + 58;
+    const int panelX = (screenW - panelW) / 2;
+    const int panelY = (screenH - panelH) / 2;
 
-    // Also handle the X close button
-    if (!open) {
-        showFloorMenu_     = false;
-        activeElevatorIdx_ = -1;
+    DrawRectangle(panelX, panelY, panelW, panelH, Color{10, 14, 24, 235});
+    DrawRectangleLinesEx(Rectangle{
+        static_cast<float>(panelX),
+        static_cast<float>(panelY),
+        static_cast<float>(panelW),
+        static_cast<float>(panelH)
+    }, 2.0f, Color{90, 150, 255, 230});
+
+    DrawText("Selecciona piso", panelX + 16, panelY + 12, 24, RAYWHITE);
+    DrawText("Flechas / 1-9 y Enter (Esc cancela)", panelX + 16, panelY + 34, 14, Color{190, 210, 230, 255});
+
+    for (int i = 0; i < floorCount; ++i) {
+        const int rowY = panelY + panelHeaderH + i * rowH;
+        const bool selected = (i == selectedFloorIdx_);
+        const Color bg = selected ? Color{40, 95, 170, 220} : Color{18, 24, 36, 180};
+        const Color fg = selected ? WHITE : Color{210, 220, 235, 255};
+        DrawRectangle(panelX + 14, rowY, panelW - 28, rowH - 4, bg);
+
+        const auto& entry = elev.floors[i];
+        const std::string label = entry.label.empty() ? entry.scene : entry.label;
+        const std::string text = std::to_string(i + 1) + ". " + label;
+        DrawText(text.c_str(), panelX + 24, rowY + 7, 20, fg);
     }
+
+    DrawText("Enter/E: confirmar", panelX + 16, panelY + panelH - 34, 16, Color{175, 235, 180, 255});
+    DrawText("Esc: cancelar", panelX + panelW - 120, panelY + panelH - 34, 16, Color{240, 190, 190, 255});
+}
+
+bool TransitionService::isCollidingWithSceneTrigger(const Rectangle& playerCollider,
+                                                    const std::string& currentScene) const {
+    for (const auto& portal : portals_) {
+        const bool inA = (portal.sceneA == currentScene) &&
+                         CheckCollisionRecs(playerCollider, portal.triggerA);
+        const bool inB = (portal.sceneB == currentScene) &&
+                         CheckCollisionRecs(playerCollider, portal.triggerB);
+        if (inA || inB) return true;
+    }
+
+    for (const auto& portal : uniPortals_) {
+        if (portal.scene != currentScene) continue;
+        if (CheckCollisionRecs(playerCollider, portal.triggerRect)) return true;
+    }
+
+    for (const auto& elev : elevators_) {
+        if (elev.scene != currentScene) continue;
+        if (CheckCollisionRecs(playerCollider, elev.triggerRect)) return true;
+    }
+
+    return false;
 }
 
 void TransitionService::drawFadeOverlay(int screenWidth, int screenHeight) const {

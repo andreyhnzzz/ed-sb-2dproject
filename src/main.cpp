@@ -1065,7 +1065,8 @@ int main(int argc, char* argv[]) {
 
         // --- "Presiona E" prompt ---
         if (transitions.isPromptVisible()) {
-            const char* hint        = transitions.getPromptHint().c_str();
+            const std::string hintText = transitions.getPromptHint();
+            const char* hint        = hintText.c_str();
             const int   hintFontSz  = 22;
             const int   hintW       = MeasureText(hint, hintFontSz);
             const int   hintX       = (screenWidth  - hintW) / 2;

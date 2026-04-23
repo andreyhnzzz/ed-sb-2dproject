@@ -125,9 +125,14 @@ private:
 
     bool showFloorMenu_{false};
     int  activeElevatorIdx_{-1};
+    int  selectedFloorIdx_{0};
+    bool floorMenuConfirmArmed_{false};
+    bool triggerLockUntilExit_{false};
 
     bool        promptVisible_{false};
     std::string promptHint_;
 
     void beginFadeIn(const std::string& targetScene, const Vector2& spawnPos);
+    bool isCollidingWithSceneTrigger(const Rectangle& playerCollider,
+                                     const std::string& currentScene) const;
 };
