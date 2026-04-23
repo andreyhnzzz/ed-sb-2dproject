@@ -96,6 +96,7 @@ set(SOURCES
         src/services/ComplexityAnalyzer.cpp
         src/services/ResilienceService.cpp
         src/services/TransitionService.cpp
+        src/services/TmjLoader.cpp
 )
 
 add_executable(EcoCampusNav ${SOURCES})

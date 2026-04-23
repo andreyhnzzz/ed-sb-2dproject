@@ -17,6 +17,7 @@
 #include "services/ComplexityAnalyzer.h"
 #include "services/ResilienceService.h"
 #include "services/TransitionService.h"
+#include "services/TmjLoader.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -114,35 +115,6 @@ static std::string findPlayerWalkSprite(const char* argv0) {
         fs::path("../assets/sprites/m_Character/junior_AnguloWalk.png"),
         fs::path("../../assets/sprites/m_Character/junior_AnguloWalk.png")
     });
-}
-
-static std::vector<Rectangle> loadHitboxesFromTmj(const std::string& tmjPath) {
-    std::ifstream file(tmjPath);
-    if (!file.is_open()) return {};
-
-    json tmj;
-    file >> tmj;
-
-    std::vector<Rectangle> hitboxes;
-    if (!tmj.contains("layers") || !tmj["layers"].is_array()) return hitboxes;
-
-    for (const auto& layer : tmj["layers"]) {
-        if (!layer.contains("type") || layer["type"] != "objectgroup") continue;
-        if (!layer.contains("objects") || !layer["objects"].is_array()) continue;
-
-        for (const auto& obj : layer["objects"]) {
-            if (!obj.contains("x") || !obj.contains("y") || !obj.contains("width") || !obj.contains("height")) continue;
-
-            Rectangle r{};
-            r.x = obj["x"].get<float>();
-            r.y = obj["y"].get<float>();
-            r.width = obj["width"].get<float>();
-            r.height = obj["height"].get<float>();
-            hitboxes.push_back(r);
-        }
-    }
-
-    return hitboxes;
 }
 
 static bool intersectsAny(const Rectangle& rect, const std::vector<Rectangle>& obstacles) {
@@ -271,13 +243,19 @@ int main(int argc, char* argv[]) {
 
     // Pre-load hitboxes for all scenes into sceneDataMap
     std::unordered_map<std::string, SceneData> sceneDataMap;
+    // Also collect all spawns and floor triggers from TMJ for transition setup
+    std::unordered_map<std::string, std::unordered_map<std::string, Vector2>> allSceneSpawns;
+    std::unordered_map<std::string, std::vector<TmjFloorTriggerDef>> allFloorTriggers;
+
     for (const auto& sc : allScenes) {
         SceneData sd;
         const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, sc.tmjPath);
         if (!tmjPath.empty()) {
             try {
                 sd.hitboxes = loadHitboxesFromTmj(tmjPath);
-                sd.isValid = true;
+                sd.isValid  = true;
+                allSceneSpawns[sc.name]    = loadSpawnsFromTmj(tmjPath);
+                allFloorTriggers[sc.name]  = loadFloorTriggersFromTmj(tmjPath);
             } catch (const std::exception& ex) {
                 std::cerr << "No se pudo leer " << sc.tmjPath << ": " << ex.what() << "\n";
             }
@@ -288,209 +266,102 @@ int main(int argc, char* argv[]) {
     }
 
     // -----------------------------------------------------------------------
-    // Portal & elevator definitions (bidirectional, spawnpoint-aware)
+    // Generate campus.generated.json from scene + spawn data
+    // -----------------------------------------------------------------------
+    {
+        json generated;
+        generated["scenes"] = json::object();
+        for (const auto& sc : allScenes) {
+            json sceneJson;
+            sceneJson["pngPath"] = sc.pngPath;
+            sceneJson["tmjPath"] = sc.tmjPath;
+            sceneJson["spawns"]  = json::object();
+            const auto it = allSceneSpawns.find(sc.name);
+            if (it != allSceneSpawns.end()) {
+                for (const auto& [sid, pos] : it->second) {
+                    sceneJson["spawns"][sid] = {{"x", pos.x}, {"y", pos.y}};
+                }
+            }
+            generated["scenes"][sc.name] = sceneJson;
+        }
+        const fs::path genPath = fs::path(path).parent_path() / "campus.generated.json";
+        std::ofstream genFile(genPath);
+        if (genFile.is_open()) {
+            genFile << generated.dump(2);
+            std::cout << "Generated: " << genPath << "\n";
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Transitions: load portals from TMJ, resolve spawn positions, register
     // -----------------------------------------------------------------------
     TransitionService transitions;
 
-    // -----------------------------------------------------------------------
-    // PORTALS
-    // -----------------------------------------------------------------------
+    for (const auto& sc : allScenes) {
+        const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, sc.tmjPath);
+        if (tmjPath.empty()) continue;
 
-    // --- Parada de bus <--> Exterior cafeteria ---
-    // ExtCafe trigger: x=[1272,1272], y=[684,842]  (right-edge strip, auto)
-    // Paradadebus trigger: x=[326.3,445.6], y≈14   (top edge, auto)
-    // Spawn in Exteriorcafeteria: 1265, 810
-    // Spawn in Paradadebus:       midpoint of top trigger (385, 35)
-    transitions.addPortal({
-        "ext_parada",
-        "Exteriorcafeteria", "Paradadebus",
-        {1272.0f, 684.0f,   1.0f, 158.0f},  // right-edge strip in Exteriorcafeteria
-        { 326.3f,   9.0f, 119.3f,  10.0f},  // top edge in Paradadebus
-        {1265.0f, 810.0f},                   // spawn in Exteriorcafeteria (arriving from bus stop)
-        { 385.0f,  35.0f},                   // spawn in Paradadebus (arriving from exterior)
-        false
-    });
-
-    // --- Exterior cafeteria <--> Piso 4 (main entrance, left half → spawn 565,515) ---
-    // The main entrance x=[1113,1243] is split: left half x=[1113,1178], right half x=[1178,1243].
-    // Left half: player was closer to the left → spawns at 565,515 inside piso4.
-    transitions.addPortal({
-        "ext_piso4_main_L",
-        "Exteriorcafeteria", "piso4",
-        {1113.0f, 493.0f,  65.0f,   8.0f},  // left half of main entrance in Exteriorcafeteria
-        { 558.0f, 510.0f,  15.0f,   8.0f},  // return trigger in piso4 near spawn 565,515
-        {1145.0f, 520.0f},                   // spawn in Exteriorcafeteria (return)
-        { 565.0f, 515.0f},                   // spawn in piso4 (left entry)
-        false
-    });
-
-    // --- Exterior cafeteria <--> Piso 4 (main entrance, right half → spawn 720,515) ---
-    // Right half: player was closer to the right → spawns at 720,515 inside piso4.
-    transitions.addPortal({
-        "ext_piso4_main_R",
-        "Exteriorcafeteria", "piso4",
-        {1178.0f, 493.0f,  65.0f,   8.0f},  // right half of main entrance in Exteriorcafeteria
-        { 713.0f, 510.0f,  15.0f,   8.0f},  // return trigger in piso4 near spawn 720,515
-        {1210.0f, 520.0f},                   // spawn in Exteriorcafeteria (return)
-        { 720.0f, 515.0f},                   // spawn in piso4 (right entry)
-        false
-    });
-
-    // --- Exterior cafeteria <--> Piso 4 (secondary access, x≈806.9, y≈439 → spawn 27,210) ---
-    transitions.addPortal({
-        "ext_piso4_sec",
-        "Exteriorcafeteria", "piso4",
-        { 803.0f, 434.0f,   8.0f,  10.0f},  // secondary access trigger in Exteriorcafeteria
-        {  20.0f, 205.0f,  15.0f,   8.0f},  // return trigger in piso4 near spawn 27,210
-        { 810.0f, 460.0f},                   // spawn in Exteriorcafeteria (return)
-        {  27.0f, 210.0f},                   // spawn in piso4 (secondary entry)
-        false
-    });
-
-    // --- Exterior cafeteria <--> Biblioteca (requires E) ---
-    // Trigger: x=[582,644.3], y=[389,395]  →  spawn in biblio: 111,535
-    transitions.addPortal({
-        "ext_biblio",
-        "Exteriorcafeteria", "biblio",
-        { 582.0f, 389.0f,  62.3f,   6.0f},  // trigger in Exteriorcafeteria
-        { 104.0f, 530.0f,  14.0f,   8.0f},  // return trigger in biblio near spawn 111,535
-        { 613.0f, 420.0f},                   // spawn in Exteriorcafeteria (return)
-        { 111.0f, 535.0f},                   // spawn in biblio
-        true                                  // requires E
-    });
-
-    // --- Exterior cafeteria <--> Interior cafeteria ---
-    // Trigger: x=[260,297], y=[392,392]  →  spawn in intcafe: 800,155
-    transitions.addPortal({
-        "ext_intcafe",
-        "Exteriorcafeteria", "Interiorcafeteria",
-        { 260.0f, 388.0f,  37.0f,   8.0f},  // trigger in Exteriorcafeteria
-        { 793.0f, 150.0f,  14.0f,   8.0f},  // return trigger in Interiorcafeteria near spawn 800,155
-        { 278.0f, 420.0f},                   // spawn in Exteriorcafeteria (return)
-        { 800.0f, 155.0f},                   // spawn in Interiorcafeteria
-        false
-    });
+        const auto portalDefs = loadPortalsFromTmj(tmjPath, sc.name);
+        for (const auto& pd : portalDefs) {
+            const auto targIt = allSceneSpawns.find(pd.toScene);
+            if (targIt == allSceneSpawns.end()) {
+                std::cerr << "[Portals] Unknown target scene '" << pd.toScene
+                          << "' in " << sc.tmjPath << "\n";
+                continue;
+            }
+            const auto spawnIt = targIt->second.find(pd.toSpawnId);
+            if (spawnIt == targIt->second.end()) {
+                std::cerr << "[Portals] Unknown spawn '" << pd.toSpawnId
+                          << "' in scene '" << pd.toScene << "'\n";
+                continue;
+            }
+            UniPortal up;
+            up.id          = pd.portalId;
+            up.scene       = pd.fromScene;
+            up.triggerRect = pd.triggerRect;
+            up.targetScene = pd.toScene;
+            up.spawnPos    = spawnIt->second;
+            up.requiresE   = pd.requiresE;
+            transitions.addUniPortal(up);
+        }
+    }
 
     // -----------------------------------------------------------------------
-    // FLOOR ELEVATORS (3 access points per floor: elevator, left stair, right stair)
-    //
-    // Each access type sends the player to the matching access on the destination
-    // floor:  elevator → elevator,  left stair → left stair,  right stair → right stair.
-    //
-    // Trigger rects use the exact pixel ranges given for each floor.
-    // Spawn positions are placed at the midpoint of each access range, shifted
-    // slightly below so the player lands just inside the walkable area.
+    // Floor elevators: load trigger rects from TMJ, build FloorElevator objects
     // -----------------------------------------------------------------------
-
-    // Spawn positions indexed as: [floor index 0-4][access type 0=elevator,1=left,2=right]
-    // Floors: piso1(0), piso2(1), piso3(2), piso4(3), piso5(4)
-    struct FloorAccess {
-        const char* scene;
-        const char* label;
-        Vector2 elevatorSpawn;   // spawn when arriving via elevator
-        Vector2 leftStairSpawn;  // spawn when arriving via left staircase
-        Vector2 rightStairSpawn; // spawn when arriving via right staircase
-        Rectangle elevatorRect;  // trigger: elevator trigger for THIS floor
-        Rectangle leftStairRect; // trigger: left staircase trigger for THIS floor
-        Rectangle rightStairRect;// trigger: right staircase trigger for THIS floor
+    // Ordered list of floor scenes for menu display
+    const std::vector<std::pair<std::string,std::string>> floorScenes = {
+        {"piso1","Piso 1"}, {"piso2","Piso 2"}, {"piso3","Piso 3"},
+        {"piso4","Piso 4"}, {"piso5","Piso 5"}
     };
 
-    // Trigger rects and spawn points per floor, derived from user-provided ranges:
-    //   Elevator spawn  = midpoint of "De X1,Y1 a X2,Y2" + slight y offset
-    //   Stair spawn     = midpoint of stair range + slight y offset
-    //   Trigger rect    = {X1, Y1-5, X2-X1, 10}  (thin strip just above the range)
-    const FloorAccess floorAccess[] = {
-        // piso1: elevator De 480,260 a 650,260 | left 30,190-55,190 | right 930,190-970,190
-        {
-            "piso1", "Piso 1",
-            {565.0f, 265.0f},   // elevator spawn
-            { 42.0f, 200.0f},   // left stair spawn
-            {950.0f, 200.0f},   // right stair spawn
-            {480.0f, 255.0f, 170.0f, 10.0f},  // elevator trigger
-            { 30.0f, 185.0f,  25.0f, 10.0f},  // left stair trigger
-            {930.0f, 185.0f,  40.0f, 10.0f},  // right stair trigger
-        },
-        // piso2: elevator De 480,240 a 655,240 | left 90,195-125,195 | right 910,190-940,190
-        {
-            "piso2", "Piso 2",
-            {567.0f, 245.0f},   // elevator spawn
-            {107.0f, 205.0f},   // left stair spawn
-            {925.0f, 200.0f},   // right stair spawn
-            {480.0f, 235.0f, 175.0f, 10.0f},  // elevator trigger
-            { 90.0f, 190.0f,  35.0f, 10.0f},  // left stair trigger
-            {910.0f, 185.0f,  30.0f, 10.0f},  // right stair trigger
-        },
-        // piso3: elevator De 480,240 a 655,240 | left 90,195-125,195 | right 910,190-940,190
-        {
-            "piso3", "Piso 3",
-            {567.0f, 245.0f},   // elevator spawn
-            {107.0f, 205.0f},   // left stair spawn
-            {925.0f, 200.0f},   // right stair spawn
-            {480.0f, 235.0f, 175.0f, 10.0f},  // elevator trigger
-            { 90.0f, 190.0f,  35.0f, 10.0f},  // left stair trigger
-            {910.0f, 185.0f,  30.0f, 10.0f},  // right stair trigger
-        },
-        // piso4: elevator De 530,220 a 700,230 | left 30,190-65,190 | right 910,190-950,190
-        {
-            "piso4", "Piso 4",
-            {615.0f, 240.0f},   // elevator spawn
-            { 47.0f, 200.0f},   // left stair spawn
-            {930.0f, 200.0f},   // right stair spawn
-            {530.0f, 215.0f, 170.0f, 20.0f},  // elevator trigger
-            { 30.0f, 185.0f,  35.0f, 10.0f},  // left stair trigger
-            {910.0f, 185.0f,  40.0f, 10.0f},  // right stair trigger
-        },
-        // piso5: elevator De 480,240 a 655,240 | left 95,190-130,190 | right 910,190-940,190
-        {
-            "piso5", "Piso 5",
-            {567.0f, 245.0f},   // elevator spawn
-            {112.0f, 200.0f},   // left stair spawn
-            {925.0f, 200.0f},   // right stair spawn
-            {480.0f, 235.0f, 175.0f, 10.0f},  // elevator trigger
-            { 95.0f, 185.0f,  35.0f, 10.0f},  // left stair trigger
-            {910.0f, 185.0f,  30.0f, 10.0f},  // right stair trigger
-        },
-    };
-    constexpr int kNumFloors = 5;
+    // For each floor scene that has FloorTrigger data, build FloorElevator instances
+    for (const auto& [sceneName, sceneLabel] : floorScenes) {
+        const auto ftIt = allFloorTriggers.find(sceneName);
+        if (ftIt == allFloorTriggers.end()) continue;
 
-    // For each floor, register 3 FloorElevator instances (one per access type).
-    // Each instance lists all OTHER floors with the corresponding spawn position.
-    for (int i = 0; i < kNumFloors; ++i) {
-        // --- Elevator ---
-        {
+        for (const auto& ft : ftIt->second) {
+            // Determine which spawn_id to use in destination scenes
+            std::string destSpawnId;
+            if      (ft.triggerType == "elevator")    destSpawnId = "elevator_arrive";
+            else if (ft.triggerType == "stair_left")  destSpawnId = "stair_left_arrive";
+            else if (ft.triggerType == "stair_right") destSpawnId = "stair_right_arrive";
+            else continue;
+
             FloorElevator fe;
-            fe.id          = std::string("elevator_") + floorAccess[i].scene;
-            fe.scene       = floorAccess[i].scene;
-            fe.triggerRect = floorAccess[i].elevatorRect;
-            for (int j = 0; j < kNumFloors; ++j) {
-                if (j == i) continue;
-                fe.floors.push_back({floorAccess[j].scene, floorAccess[j].elevatorSpawn, floorAccess[j].label});
+            fe.id          = ft.triggerType + "_" + sceneName;
+            fe.scene       = sceneName;
+            fe.triggerRect = ft.triggerRect;
+
+            for (const auto& [dstScene, dstLabel] : floorScenes) {
+                if (dstScene == sceneName) continue;
+                const auto dstSpawnMapIt = allSceneSpawns.find(dstScene);
+                if (dstSpawnMapIt == allSceneSpawns.end()) continue;
+                const auto spawnPosIt = dstSpawnMapIt->second.find(destSpawnId);
+                if (spawnPosIt == dstSpawnMapIt->second.end()) continue;
+                fe.floors.push_back({dstScene, spawnPosIt->second, dstLabel});
             }
-            transitions.addFloorElevator(fe);
-        }
-        // --- Left staircase ---
-        {
-            FloorElevator fe;
-            fe.id          = std::string("stair_left_") + floorAccess[i].scene;
-            fe.scene       = floorAccess[i].scene;
-            fe.triggerRect = floorAccess[i].leftStairRect;
-            for (int j = 0; j < kNumFloors; ++j) {
-                if (j == i) continue;
-                fe.floors.push_back({floorAccess[j].scene, floorAccess[j].leftStairSpawn, floorAccess[j].label});
-            }
-            transitions.addFloorElevator(fe);
-        }
-        // --- Right staircase ---
-        {
-            FloorElevator fe;
-            fe.id          = std::string("stair_right_") + floorAccess[i].scene;
-            fe.scene       = floorAccess[i].scene;
-            fe.triggerRect = floorAccess[i].rightStairRect;
-            for (int j = 0; j < kNumFloors; ++j) {
-                if (j == i) continue;
-                fe.floors.push_back({floorAccess[j].scene, floorAccess[j].rightStairSpawn, floorAccess[j].label});
-            }
-            transitions.addFloorElevator(fe);
+            if (!fe.floors.empty()) transitions.addFloorElevator(fe);
         }
     }
 
@@ -541,7 +412,15 @@ int main(int argc, char* argv[]) {
         playerAnim.walkFrames = std::max(1, playerAnim.walk.width / std::max(1, playerAnim.frameWidth));
     }
 
-    Vector2 playerPos = findSpawnPoint(mapData);
+    Vector2 playerPos = [&]() -> Vector2 {
+        // Use the TMJ "bus_arrive" spawn if available, else fall back to hitbox scan
+        const auto scIt = allSceneSpawns.find(initialSceneName);
+        if (scIt != allSceneSpawns.end()) {
+            const auto spIt = scIt->second.find("bus_arrive");
+            if (spIt != scIt->second.end()) return spIt->second;
+        }
+        return findSpawnPoint(mapData);
+    }();
     const float playerSpeed = 150.0f;
     const float sprintMultiplier = 1.8f;
     const float playerRenderScale = 1.6f;
@@ -693,6 +572,12 @@ int main(int argc, char* argv[]) {
                 if (portal.sceneA == currentSceneName) drawZone(portal.triggerA);
                 if (portal.sceneB == currentSceneName) drawZone(portal.triggerB);
             }
+            for (const auto& uniPortal : transitions.getUniPortals()) {
+                if (uniPortal.scene == currentSceneName) {
+                    DrawRectangleRec(uniPortal.triggerRect, Color{0, 255, 120, 60});
+                    DrawRectangleLinesEx(uniPortal.triggerRect, 1.5f, Color{0, 255, 120, 200});
+                }
+            }
             for (const auto& elev : transitions.getElevators()) {
                 if (elev.scene == currentSceneName) {
                     DrawRectangleRec(elev.triggerRect, Color{0, 180, 255, 60});
@@ -728,6 +613,46 @@ int main(int argc, char* argv[]) {
             DrawCircleV(playerPos, 8.0f, RED);
         }
         EndMode2D();
+
+        // -----------------------------------------------------------------------
+        // Waze-style minimap (bottom-right corner, crops scene texture by radius)
+        // -----------------------------------------------------------------------
+        if (mapData.hasTexture) {
+            constexpr int   kMapW        = 200;
+            constexpr int   kMapH        = 150;
+            constexpr int   kMapPad      = 12;
+            constexpr float kWorldRadius = 300.0f;  // world-space crop radius
+
+            const int mapX = screenWidth  - kMapW - kMapPad;
+            const int mapY = screenHeight - kMapH - kMapPad;
+
+            // Source rect: kWorldRadius around the player in scene space
+            const float texW = static_cast<float>(mapData.texture.width);
+            const float texH = static_cast<float>(mapData.texture.height);
+            const float srcX = std::clamp(playerPos.x - kWorldRadius, 0.0f, texW);
+            const float srcY = std::clamp(playerPos.y - kWorldRadius, 0.0f, texH);
+            const float srcW = std::clamp(2.0f * kWorldRadius, 1.0f, texW - srcX);
+            const float srcH = std::clamp(2.0f * kWorldRadius, 1.0f, texH - srcY);
+
+            // Draw minimap background
+            DrawRectangle(mapX - 2, mapY - 2, kMapW + 4, kMapH + 4, Color{0,0,0,200});
+            // Draw scene texture cropped around player
+            DrawTexturePro(mapData.texture,
+                           Rectangle{srcX, srcY, srcW, srcH},
+                           Rectangle{static_cast<float>(mapX), static_cast<float>(mapY),
+                                     static_cast<float>(kMapW), static_cast<float>(kMapH)},
+                           Vector2{0, 0}, 0.0f, Color{255,255,255,210});
+
+            // Player dot at center of minimap
+            const float dotX = mapX + kMapW * 0.5f;
+            const float dotY = mapY + kMapH * 0.5f;
+            DrawCircle(static_cast<int>(dotX), static_cast<int>(dotY), 4.0f, Color{0,220,255,255});
+            DrawCircleLines(static_cast<int>(dotX), static_cast<int>(dotY), 4.0f, WHITE);
+
+            // Minimap border and label
+            DrawRectangleLines(mapX - 2, mapY - 2, kMapW + 4, kMapH + 4, Color{80,160,255,200});
+            DrawText("Mapa", mapX + 4, mapY + 4, 12, Color{180,220,255,220});
+        }
 
         // --- Fade overlay (screen space) ---
         transitions.drawFadeOverlay(screenWidth, screenHeight);

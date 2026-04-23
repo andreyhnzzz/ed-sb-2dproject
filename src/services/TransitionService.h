@@ -7,6 +7,18 @@
 // Data structures
 // ---------------------------------------------------------------------------
 
+/// A one-directional portal loaded from a TMJ "Portals" object layer.
+/// When the player enters triggerRect while in `scene`, they are sent to
+/// `targetScene` and placed at `spawnPos`.
+struct UniPortal {
+    std::string id;
+    std::string scene;          ///< Scene that owns this trigger
+    Rectangle   triggerRect;
+    std::string targetScene;
+    Vector2     spawnPos{0.0f, 0.0f};
+    bool        requiresE{false};
+};
+
 /// A bidirectional portal connecting two scenes.
 /// The player crosses from sceneA → sceneB via triggerA, or from
 /// sceneB → sceneA via triggerB.  spawnInA / spawnInB define where the player
@@ -64,6 +76,7 @@ struct TransitionRequest {
 class TransitionService {
 public:
     void addPortal(const Portal& portal);
+    void addUniPortal(const UniPortal& portal);
     void addFloorElevator(const FloorElevator& elevator);
 
     /// Process triggers and advance the fade state machine. Call once per frame.
@@ -95,10 +108,12 @@ public:
 
     /// Read-only accessors (used for debug rendering).
     const std::vector<Portal>&        getPortals()    const { return portals_; }
+    const std::vector<UniPortal>&     getUniPortals() const { return uniPortals_; }
     const std::vector<FloorElevator>& getElevators()  const { return elevators_; }
 
 private:
     std::vector<Portal>        portals_;
+    std::vector<UniPortal>     uniPortals_;
     std::vector<FloorElevator> elevators_;
 
     enum class Phase { IDLE, FADING_IN, FADING_OUT } phase_{Phase::IDLE};

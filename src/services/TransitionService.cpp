@@ -9,6 +9,10 @@ void TransitionService::addPortal(const Portal& portal) {
     portals_.push_back(portal);
 }
 
+void TransitionService::addUniPortal(const UniPortal& portal) {
+    uniPortals_.push_back(portal);
+}
+
 void TransitionService::addFloorElevator(const FloorElevator& elevator) {
     elevators_.push_back(elevator);
 }
@@ -74,6 +78,25 @@ void TransitionService::update(const Rectangle& playerCollider,
             beginFadeIn(targetScene, spawnPos);
         }
         return; // process at most one trigger per frame
+    }
+
+    // -----------------------------------------------------------------------
+    // Uni-directional portal triggers (loaded from TMJ)
+    // -----------------------------------------------------------------------
+    for (const auto& portal : uniPortals_) {
+        if (portal.scene != currentScene) continue;
+        if (!CheckCollisionRecs(playerCollider, portal.triggerRect)) continue;
+
+        if (portal.requiresE) {
+            promptVisible_ = true;
+            promptHint_    = "Presiona E";
+            if (IsKeyPressed(KEY_E)) {
+                beginFadeIn(portal.targetScene, portal.spawnPos);
+            }
+        } else {
+            beginFadeIn(portal.targetScene, portal.spawnPos);
+        }
+        return;
     }
 
     // -----------------------------------------------------------------------

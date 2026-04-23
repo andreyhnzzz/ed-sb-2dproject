@@ -1,0 +1,166 @@
+{
+  "scenes": {
+    "Exteriorcafeteria": {
+      "pngPath": "assets/maps/Exteriorcafeteria.png",
+      "spawns": {
+        "ext_from_biblio": {
+          "x": 618.0,
+          "y": 425.0
+        },
+        "ext_from_bus": {
+          "x": 1270.0,
+          "y": 815.0
+        },
+        "ext_from_intcafe": {
+          "x": 283.0,
+          "y": 425.0
+        },
+        "ext_from_piso4_main_L": {
+          "x": 1150.0,
+          "y": 525.0
+        },
+        "ext_from_piso4_main_R": {
+          "x": 1215.0,
+          "y": 525.0
+        },
+        "ext_from_piso4_sec": {
+          "x": 815.0,
+          "y": 465.0
+        }
+      },
+      "tmjPath": "assets/maps/Exteriorcafeteria.tmj"
+    },
+    "Interiorcafeteria": {
+      "pngPath": "assets/maps/Interiorcafeteria.png",
+      "spawns": {
+        "intcafe_arrive": {
+          "x": 805.0,
+          "y": 160.0
+        }
+      },
+      "tmjPath": "assets/maps/Interiorcafeteria.tmj"
+    },
+    "Paradadebus": {
+      "pngPath": "assets/maps/Paradadebus.png",
+      "spawns": {
+        "bus_arrive": {
+          "x": 390.0,
+          "y": 40.0
+        }
+      },
+      "tmjPath": "assets/maps/Paradadebus.tmj"
+    },
+    "biblio": {
+      "pngPath": "assets/maps/biblio.png",
+      "spawns": {
+        "biblio_main_arrive": {
+          "x": 116.0,
+          "y": 540.0
+        }
+      },
+      "tmjPath": "assets/maps/biblio.tmj"
+    },
+    "piso1": {
+      "pngPath": "assets/maps/piso 1.png",
+      "spawns": {
+        "elevator_arrive": {
+          "x": 570.0,
+          "y": 270.0
+        },
+        "stair_left_arrive": {
+          "x": 47.0,
+          "y": 205.0
+        },
+        "stair_right_arrive": {
+          "x": 955.0,
+          "y": 205.0
+        }
+      },
+      "tmjPath": "assets/maps/piso1.tmj"
+    },
+    "piso2": {
+      "pngPath": "assets/maps/piso2.png",
+      "spawns": {
+        "elevator_arrive": {
+          "x": 572.0,
+          "y": 250.0
+        },
+        "stair_left_arrive": {
+          "x": 112.0,
+          "y": 210.0
+        },
+        "stair_right_arrive": {
+          "x": 930.0,
+          "y": 205.0
+        }
+      },
+      "tmjPath": "assets/maps/piso2.tmj"
+    },
+    "piso3": {
+      "pngPath": "assets/maps/piso 3.png",
+      "spawns": {
+        "elevator_arrive": {
+          "x": 572.0,
+          "y": 250.0
+        },
+        "stair_left_arrive": {
+          "x": 112.0,
+          "y": 210.0
+        },
+        "stair_right_arrive": {
+          "x": 930.0,
+          "y": 205.0
+        }
+      },
+      "tmjPath": "assets/maps/piso3.tmj"
+    },
+    "piso4": {
+      "pngPath": "assets/maps/piso 4.png",
+      "spawns": {
+        "elevator_arrive": {
+          "x": 620.0,
+          "y": 245.0
+        },
+        "piso4_main_L_arrive": {
+          "x": 570.0,
+          "y": 520.0
+        },
+        "piso4_main_R_arrive": {
+          "x": 725.0,
+          "y": 520.0
+        },
+        "piso4_sec_arrive": {
+          "x": 32.0,
+          "y": 215.0
+        },
+        "stair_left_arrive": {
+          "x": 52.0,
+          "y": 205.0
+        },
+        "stair_right_arrive": {
+          "x": 935.0,
+          "y": 205.0
+        }
+      },
+      "tmjPath": "assets/maps/piso 4.tmj"
+    },
+    "piso5": {
+      "pngPath": "assets/maps/piso 5.png",
+      "spawns": {
+        "elevator_arrive": {
+          "x": 572.0,
+          "y": 250.0
+        },
+        "stair_left_arrive": {
+          "x": 117.0,
+          "y": 205.0
+        },
+        "stair_right_arrive": {
+          "x": 930.0,
+          "y": 205.0
+        }
+      },
+      "tmjPath": "assets/maps/piso 5.tmj"
+    }
+  }
+}
