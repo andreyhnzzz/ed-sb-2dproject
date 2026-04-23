@@ -44,8 +44,8 @@
       "pngPath": "assets/maps/Paradadebus.png",
       "spawns": {
         "bus_arrive": {
-          "x": 390.0,
-          "y": 40.0
+          "x": 1080.0,
+          "y": 800.0
         }
       },
       "tmjPath": "assets/maps/Paradadebus.tmj"

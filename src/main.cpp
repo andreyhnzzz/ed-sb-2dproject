@@ -8,6 +8,10 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
+#include <queue>
+#include <limits>
+#include <cstdint>
 #include <cstdio>
 #include <cmath>
 #include <nlohmann/json.hpp>
@@ -54,6 +58,23 @@ struct SceneConfig {
     std::string tmjPath;
 };
 
+enum class SceneLinkType {
+    Portal,
+    Elevator,
+    StairLeft,
+    StairRight
+};
+
+struct SceneLink {
+    std::string id;
+    std::string fromScene;
+    std::string toScene;
+    std::string label;
+    Rectangle triggerRect{};
+    Vector2 arrivalSpawn{0.0f, 0.0f};
+    SceneLinkType type{SceneLinkType::Portal};
+};
+
 static int directionStartFrame(int direction, int totalFrames) {
     if (totalFrames < 4) return 0;
     const int framesPerDir = std::max(1, totalFrames / 4);
@@ -64,6 +85,75 @@ static int directionStartFrame(int direction, int totalFrames) {
 static int directionalFrameCount(int totalFrames) {
     if (totalFrames < 4) return std::max(1, totalFrames);
     return std::max(1, totalFrames / 4);
+}
+
+static Vector2 rectCenter(const Rectangle& rect) {
+    return Vector2{rect.x + rect.width * 0.5f, rect.y + rect.height * 0.5f};
+}
+
+static float distanceBetween(const Vector2& a, const Vector2& b) {
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+static float polylineLength(const std::vector<Vector2>& points) {
+    float total = 0.0f;
+    for (size_t i = 1; i < points.size(); ++i) {
+        total += distanceBetween(points[i - 1], points[i]);
+    }
+    return total;
+}
+
+static bool isLinkAllowed(const SceneLink& link, bool mobilityReduced) {
+    if (!mobilityReduced) return true;
+    return link.type != SceneLinkType::StairLeft &&
+           link.type != SceneLinkType::StairRight;
+}
+
+static std::vector<std::string>
+buildScenePlan(const std::string& startScene,
+               const std::string& goalScene,
+               const std::vector<SceneLink>& links,
+               bool mobilityReduced) {
+    if (startScene.empty() || goalScene.empty()) return {};
+    if (startScene == goalScene) return {startScene};
+
+    std::queue<std::string> pending;
+    std::unordered_map<std::string, std::string> previous;
+    std::unordered_set<std::string> visited;
+
+    pending.push(startScene);
+    visited.insert(startScene);
+
+    while (!pending.empty()) {
+        const std::string scene = pending.front();
+        pending.pop();
+
+        for (const auto& link : links) {
+            if (link.fromScene != scene || !isLinkAllowed(link, mobilityReduced)) continue;
+            if (!visited.insert(link.toScene).second) continue;
+            previous[link.toScene] = scene;
+
+            if (link.toScene == goalScene) {
+                std::vector<std::string> plan;
+                std::string current = goalScene;
+                plan.push_back(current);
+                while (current != startScene) {
+                    const auto it = previous.find(current);
+                    if (it == previous.end()) return {};
+                    current = it->second;
+                    plan.push_back(current);
+                }
+                std::reverse(plan.begin(), plan.end());
+                return plan;
+            }
+
+            pending.push(link.toScene);
+        }
+    }
+
+    return {};
 }
 
 static std::string findPathCandidate(const char* argv0, const std::vector<fs::path>& baseCandidates) {
@@ -132,6 +222,150 @@ static Rectangle playerColliderAt(const Vector2& playerPos) {
     collider.width = 10.0f;
     collider.height = 8.0f;
     return collider;
+}
+
+static std::vector<Vector2> buildWalkablePath(const MapRenderData& mapData,
+                                              const Vector2& start,
+                                              const Vector2& goal) {
+    if (!mapData.hasTexture) return {};
+
+    constexpr float kCellSize = 16.0f;
+    const float texW = static_cast<float>(mapData.texture.width);
+    const float texH = static_cast<float>(mapData.texture.height);
+    const int cols = std::max(1, static_cast<int>(std::ceil(texW / kCellSize)));
+    const int rows = std::max(1, static_cast<int>(std::ceil(texH / kCellSize)));
+    const int cellCount = cols * rows;
+
+    auto idxOf = [cols](int x, int y) { return y * cols + x; };
+    auto cellX = [cols](int idx) { return idx % cols; };
+    auto cellY = [cols](int idx) { return idx / cols; };
+    auto clampCell = [&](int& x, int& y) {
+        x = std::clamp(x, 0, cols - 1);
+        y = std::clamp(y, 0, rows - 1);
+    };
+    auto cellCenter = [&](int x, int y) {
+        return Vector2{
+            std::clamp((static_cast<float>(x) + 0.5f) * kCellSize, 8.0f, texW - 8.0f),
+            std::clamp((static_cast<float>(y) + 0.5f) * kCellSize, 14.0f, texH - 8.0f)
+        };
+    };
+
+    std::vector<int8_t> walkable(cellCount, -1);
+    auto isWalkableCell = [&](int x, int y) {
+        clampCell(x, y);
+        const int idx = idxOf(x, y);
+        if (walkable[idx] != -1) return walkable[idx] == 1;
+        const bool freeCell = !intersectsAny(playerColliderAt(cellCenter(x, y)), mapData.hitboxes);
+        walkable[idx] = freeCell ? 1 : 0;
+        return freeCell;
+    };
+
+    auto nearestWalkableCell = [&](const Vector2& point) {
+        int baseX = static_cast<int>(point.x / kCellSize);
+        int baseY = static_cast<int>(point.y / kCellSize);
+        clampCell(baseX, baseY);
+        if (isWalkableCell(baseX, baseY)) return idxOf(baseX, baseY);
+
+        const int maxRadius = std::max(cols, rows);
+        int bestIdx = -1;
+        float bestDistance = std::numeric_limits<float>::max();
+        for (int radius = 1; radius <= maxRadius; ++radius) {
+            const int minX = std::max(0, baseX - radius);
+            const int maxX = std::min(cols - 1, baseX + radius);
+            const int minY = std::max(0, baseY - radius);
+            const int maxY = std::min(rows - 1, baseY + radius);
+
+            for (int y = minY; y <= maxY; ++y) {
+                for (int x = minX; x <= maxX; ++x) {
+                    const bool edgeCell = (x == minX || x == maxX || y == minY || y == maxY);
+                    if (!edgeCell || !isWalkableCell(x, y)) continue;
+                    const float dist = distanceBetween(point, cellCenter(x, y));
+                    if (dist < bestDistance) {
+                        bestDistance = dist;
+                        bestIdx = idxOf(x, y);
+                    }
+                }
+            }
+            if (bestIdx >= 0) return bestIdx;
+        }
+
+        return -1;
+    };
+
+    const int startIdx = nearestWalkableCell(start);
+    const int goalIdx = nearestWalkableCell(goal);
+    if (startIdx < 0 || goalIdx < 0) return {};
+    if (startIdx == goalIdx) return {start, goal};
+
+    struct OpenNode {
+        float fScore;
+        int idx;
+    };
+    struct OpenNodeCompare {
+        bool operator()(const OpenNode& a, const OpenNode& b) const {
+            return a.fScore > b.fScore;
+        }
+    };
+
+    std::priority_queue<OpenNode, std::vector<OpenNode>, OpenNodeCompare> open;
+    std::vector<float> gScore(cellCount, std::numeric_limits<float>::max());
+    std::vector<int> parent(cellCount, -1);
+    std::vector<bool> closed(cellCount, false);
+
+    gScore[startIdx] = 0.0f;
+    open.push({distanceBetween(cellCenter(cellX(startIdx), cellY(startIdx)),
+                               cellCenter(cellX(goalIdx), cellY(goalIdx))),
+               startIdx});
+
+    while (!open.empty()) {
+        const int current = open.top().idx;
+        open.pop();
+        if (closed[current]) continue;
+        if (current == goalIdx) break;
+        closed[current] = true;
+
+        const int cx = cellX(current);
+        const int cy = cellY(current);
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                const int nx = cx + dx;
+                const int ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+                if (!isWalkableCell(nx, ny)) continue;
+                if (dx != 0 && dy != 0 &&
+                    (!isWalkableCell(cx + dx, cy) || !isWalkableCell(cx, cy + dy))) {
+                    continue;
+                }
+
+                const int next = idxOf(nx, ny);
+                const float stepCost = (dx != 0 && dy != 0) ? 1.41421356f : 1.0f;
+                const float tentative = gScore[current] + stepCost;
+                if (tentative >= gScore[next]) continue;
+
+                parent[next] = current;
+                gScore[next] = tentative;
+                const float heuristic =
+                    distanceBetween(cellCenter(nx, ny),
+                                    cellCenter(cellX(goalIdx), cellY(goalIdx)));
+                open.push({tentative + heuristic, next});
+            }
+        }
+    }
+
+    if (parent[goalIdx] == -1) return {start, goal};
+
+    std::vector<Vector2> path;
+    for (int current = goalIdx; current != -1; current = parent[current]) {
+        path.push_back(cellCenter(cellX(current), cellY(current)));
+        if (current == startIdx) break;
+    }
+    std::reverse(path.begin(), path.end());
+    if (!path.empty()) {
+        path.front() = start;
+        path.back() = goal;
+    }
+    return path;
 }
 
 static Vector2 findSpawnPoint(const MapRenderData& mapData) {
@@ -246,6 +480,7 @@ int main(int argc, char* argv[]) {
     // Also collect all spawns and floor triggers from TMJ for transition setup
     std::unordered_map<std::string, std::unordered_map<std::string, Vector2>> allSceneSpawns;
     std::unordered_map<std::string, std::vector<TmjFloorTriggerDef>> allFloorTriggers;
+    std::vector<SceneLink> sceneLinks;
 
     for (const auto& sc : allScenes) {
         SceneData sd;
@@ -323,6 +558,15 @@ int main(int argc, char* argv[]) {
             up.spawnPos    = spawnIt->second;
             up.requiresE   = pd.requiresE;
             transitions.addUniPortal(up);
+            sceneLinks.push_back({
+                up.id,
+                up.scene,
+                up.targetScene,
+                up.requiresE ? "Acceso con E" : "Acceso automatico",
+                up.triggerRect,
+                up.spawnPos,
+                SceneLinkType::Portal
+            });
         }
     }
 
@@ -334,6 +578,46 @@ int main(int argc, char* argv[]) {
         {"piso1","Piso 1"}, {"piso2","Piso 2"}, {"piso3","Piso 3"},
         {"piso4","Piso 4"}, {"piso5","Piso 5"}
     };
+    const std::vector<std::pair<std::string,std::string>> routeScenes = {
+        {"Paradadebus", "Parada de Bus"},
+        {"Exteriorcafeteria", "Exterior Cafeteria"},
+        {"Interiorcafeteria", "Interior Cafeteria"},
+        {"biblio", "Biblio"},
+        {"piso1", "Piso 1"},
+        {"piso2", "Piso 2"},
+        {"piso3", "Piso 3"},
+        {"piso4", "Piso 4"},
+        {"piso5", "Piso 5"}
+    };
+
+    auto sceneDisplayName = [&](const std::string& sceneName) -> std::string {
+        for (const auto& [id, label] : routeScenes) {
+            if (id == sceneName) return label;
+        }
+        return sceneName;
+    };
+
+    auto sceneTargetPoint = [&](const std::string& sceneName) -> Vector2 {
+        const auto spawnMapIt = allSceneSpawns.find(sceneName);
+        if (spawnMapIt == allSceneSpawns.end() || spawnMapIt->second.empty()) {
+            return Vector2{0.0f, 0.0f};
+        }
+
+        const auto& spawnMap = spawnMapIt->second;
+        for (const std::string& preferred : {
+                 std::string("bus_arrive"),
+                 std::string("ext_from_bus"),
+                 std::string("intcafe_arrive"),
+                 std::string("biblio_main_arrive"),
+                 std::string("elevator_arrive"),
+                 std::string("piso4_main_L_arrive")
+             }) {
+            const auto it = spawnMap.find(preferred);
+            if (it != spawnMap.end()) return it->second;
+        }
+
+        return spawnMap.begin()->second;
+    };
 
     // For each floor scene that has FloorTrigger data, build FloorElevator instances
     for (const auto& [sceneName, sceneLabel] : floorScenes) {
@@ -343,10 +627,14 @@ int main(int argc, char* argv[]) {
         for (const auto& ft : ftIt->second) {
             // Determine which spawn_id to use in destination scenes
             std::string destSpawnId;
+            SceneLinkType linkType = SceneLinkType::Portal;
             if      (ft.triggerType == "elevator")    destSpawnId = "elevator_arrive";
             else if (ft.triggerType == "stair_left")  destSpawnId = "stair_left_arrive";
             else if (ft.triggerType == "stair_right") destSpawnId = "stair_right_arrive";
             else continue;
+            if      (ft.triggerType == "elevator")    linkType = SceneLinkType::Elevator;
+            else if (ft.triggerType == "stair_left")  linkType = SceneLinkType::StairLeft;
+            else if (ft.triggerType == "stair_right") linkType = SceneLinkType::StairRight;
 
             FloorElevator fe;
             fe.id          = ft.triggerType + "_" + sceneName;
@@ -354,12 +642,27 @@ int main(int argc, char* argv[]) {
             fe.triggerRect = ft.triggerRect;
 
             for (const auto& [dstScene, dstLabel] : floorScenes) {
-                if (dstScene == sceneName) continue;
                 const auto dstSpawnMapIt = allSceneSpawns.find(dstScene);
                 if (dstSpawnMapIt == allSceneSpawns.end()) continue;
                 const auto spawnPosIt = dstSpawnMapIt->second.find(destSpawnId);
                 if (spawnPosIt == dstSpawnMapIt->second.end()) continue;
                 fe.floors.push_back({dstScene, spawnPosIt->second, dstLabel});
+                if (dstScene == sceneName) continue;
+
+                std::string accessLabel = "Acceso";
+                if (linkType == SceneLinkType::Elevator) accessLabel = "Elevador";
+                if (linkType == SceneLinkType::StairLeft) accessLabel = "Escalera izquierda";
+                if (linkType == SceneLinkType::StairRight) accessLabel = "Escalera derecha";
+
+                sceneLinks.push_back({
+                    fe.id + "_" + dstScene,
+                    sceneName,
+                    dstScene,
+                    accessLabel,
+                    fe.triggerRect,
+                    spawnPosIt->second,
+                    linkType
+                });
             }
             if (!fe.floors.empty()) transitions.addFloorElevator(fe);
         }
@@ -452,6 +755,16 @@ int main(int argc, char* argv[]) {
     bool lastConnected = false;
     std::vector<AlgorithmStats> lastStats;
     std::string lastAction;
+    int selectedRouteSceneIdx = 0;
+    bool routeActive = false;
+    std::string routeTargetScene;
+    std::vector<std::string> routeScenePlan;
+    std::vector<Vector2> routePathPoints;
+    std::string routeNextHint;
+    std::string routePathScene;
+    bool routeMobilityReduced = scenario_manager.isMobilityReduced();
+    float routeRefreshCooldown = 0.0f;
+    Vector2 routeAnchorPos = playerPos;
 
     while (!WindowShouldClose()) {
         const float dt = GetFrameTime();
@@ -506,6 +819,62 @@ int main(int argc, char* argv[]) {
         }
         camera.target = playerPos;
         clampCameraTarget(camera, mapData, screenWidth, screenHeight);
+
+        if (routeActive) {
+            routeRefreshCooldown -= dt;
+            const bool mobilityChanged = routeMobilityReduced != scenario_manager.isMobilityReduced();
+            const bool movedEnough = distanceBetween(playerPos, routeAnchorPos) >= 28.0f;
+            const bool sceneChanged = routePathScene != currentSceneName;
+
+            if (routeRefreshCooldown <= 0.0f || mobilityChanged || movedEnough || sceneChanged) {
+                routeMobilityReduced = scenario_manager.isMobilityReduced();
+                routeAnchorPos = playerPos;
+                routePathScene = currentSceneName;
+                routePathPoints.clear();
+                routeScenePlan = buildScenePlan(currentSceneName, routeTargetScene,
+                                                sceneLinks, routeMobilityReduced);
+                routeRefreshCooldown = 0.20f;
+
+                if (routeScenePlan.empty()) {
+                    routeNextHint = "No hay conexion disponible";
+                } else if (currentSceneName == routeTargetScene) {
+                    const Vector2 goal = sceneTargetPoint(routeTargetScene);
+                    routePathPoints = buildWalkablePath(mapData, playerPos, goal);
+                    routeNextHint = distanceBetween(playerPos, goal) <= 24.0f
+                        ? "Destino alcanzado"
+                        : "Sigue la ruta hasta el destino";
+                } else {
+                    const std::string nextScene = routeScenePlan.size() > 1
+                        ? routeScenePlan[1]
+                        : routeTargetScene;
+                    float bestLen = std::numeric_limits<float>::max();
+                    std::string bestLabel;
+                    std::vector<Vector2> bestPath;
+
+                    for (const auto& link : sceneLinks) {
+                        if (link.fromScene != currentSceneName || link.toScene != nextScene ||
+                            !isLinkAllowed(link, routeMobilityReduced)) {
+                            continue;
+                        }
+                        const std::vector<Vector2> candidatePath =
+                            buildWalkablePath(mapData, playerPos, rectCenter(link.triggerRect));
+                        if (candidatePath.empty()) continue;
+                        const float len = polylineLength(candidatePath);
+                        if (len < bestLen) {
+                            bestLen = len;
+                            bestPath = candidatePath;
+                            bestLabel = link.label;
+                        }
+                    }
+
+                    routePathPoints = std::move(bestPath);
+                    routeNextHint = routePathPoints.empty()
+                        ? "No se pudo trazar la ruta local"
+                        : "Dirigete a " + bestLabel + " para llegar a " +
+                          sceneDisplayName(nextScene);
+                }
+            }
+        }
 
         // --- Scene transition (portal & elevator detection + fade state machine) ---
         transitions.update(playerColliderAt(playerPos), currentSceneName, dt);
@@ -629,29 +998,66 @@ int main(int argc, char* argv[]) {
             // Source rect: kWorldRadius around the player in scene space
             const float texW = static_cast<float>(mapData.texture.width);
             const float texH = static_cast<float>(mapData.texture.height);
-            const float srcX = std::clamp(playerPos.x - kWorldRadius, 0.0f, texW);
-            const float srcY = std::clamp(playerPos.y - kWorldRadius, 0.0f, texH);
-            const float srcW = std::clamp(2.0f * kWorldRadius, 1.0f, texW - srcX);
-            const float srcH = std::clamp(2.0f * kWorldRadius, 1.0f, texH - srcY);
+            const float srcW = std::min(2.0f * kWorldRadius, texW);
+            const float srcH = std::min(2.0f * kWorldRadius, texH);
+            const float srcX = std::clamp(playerPos.x - srcW * 0.5f, 0.0f, std::max(0.0f, texW - srcW));
+            const float srcY = std::clamp(playerPos.y - srcH * 0.5f, 0.0f, std::max(0.0f, texH - srcH));
+            const Rectangle srcRect{srcX, srcY, srcW, srcH};
+
+            auto worldToMini = [&](const Vector2& p) {
+                return Vector2{
+                    static_cast<float>(mapX) + ((p.x - srcRect.x) / srcRect.width) * kMapW,
+                    static_cast<float>(mapY) + ((p.y - srcRect.y) / srcRect.height) * kMapH
+                };
+            };
 
             // Draw minimap background
             DrawRectangle(mapX - 2, mapY - 2, kMapW + 4, kMapH + 4, Color{0,0,0,200});
             // Draw scene texture cropped around player
             DrawTexturePro(mapData.texture,
-                           Rectangle{srcX, srcY, srcW, srcH},
+                           srcRect,
                            Rectangle{static_cast<float>(mapX), static_cast<float>(mapY),
                                      static_cast<float>(kMapW), static_cast<float>(kMapH)},
                            Vector2{0, 0}, 0.0f, Color{255,255,255,210});
 
-            // Player dot at center of minimap
-            const float dotX = mapX + kMapW * 0.5f;
-            const float dotY = mapY + kMapH * 0.5f;
+            for (const auto& hitbox : mapData.hitboxes) {
+                const float left = std::max(hitbox.x, srcRect.x);
+                const float top = std::max(hitbox.y, srcRect.y);
+                const float right = std::min(hitbox.x + hitbox.width, srcRect.x + srcRect.width);
+                const float bottom = std::min(hitbox.y + hitbox.height, srcRect.y + srcRect.height);
+                if (right <= left || bottom <= top) continue;
+
+                DrawRectangleRec(Rectangle{
+                    static_cast<float>(mapX) + ((left - srcRect.x) / srcRect.width) * kMapW,
+                    static_cast<float>(mapY) + ((top - srcRect.y) / srcRect.height) * kMapH,
+                    ((right - left) / srcRect.width) * kMapW,
+                    ((bottom - top) / srcRect.height) * kMapH
+                }, Color{120, 120, 120, 135});
+            }
+
+            if (routeActive && routePathScene == currentSceneName && routePathPoints.size() >= 2) {
+                for (size_t i = 1; i < routePathPoints.size(); ++i) {
+                    const Vector2 a = worldToMini(routePathPoints[i - 1]);
+                    const Vector2 b = worldToMini(routePathPoints[i]);
+                    DrawLineEx(a, b, 3.0f, Color{255, 210, 60, 240});
+                }
+                const Vector2 goalMarker = worldToMini(routePathPoints.back());
+                DrawCircleV(goalMarker, 5.0f, Color{255, 180, 60, 240});
+                DrawCircleLines(static_cast<int>(goalMarker.x), static_cast<int>(goalMarker.y), 5.0f, BLACK);
+            }
+
+            const Vector2 playerMini = worldToMini(playerPos);
+            const float dotX = playerMini.x;
+            const float dotY = playerMini.y;
             DrawCircle(static_cast<int>(dotX), static_cast<int>(dotY), 4.0f, Color{0,220,255,255});
             DrawCircleLines(static_cast<int>(dotX), static_cast<int>(dotY), 4.0f, WHITE);
 
             // Minimap border and label
             DrawRectangleLines(mapX - 2, mapY - 2, kMapW + 4, kMapH + 4, Color{80,160,255,200});
             DrawText("Mapa", mapX + 4, mapY + 4, 12, Color{180,220,255,220});
+            if (routeActive) {
+                DrawText("Ruta activa", mapX + 52, mapY + 4, 12, Color{255,220,120,220});
+            }
         }
 
         // --- Fade overlay (screen space) ---
@@ -682,6 +1088,48 @@ int main(int argc, char* argv[]) {
 
         // Floor-elevator menu (shown when player presses E near an elevator)
         transitions.drawFloorMenu();
+
+        ImGui::SetNextWindowPos(ImVec2(static_cast<float>(screenWidth - 286),
+                                       static_cast<float>(screenHeight - 334)),
+                                ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(270, 150), ImGuiCond_Always);
+        ImGui::Begin("Ruta minimapa", nullptr,
+                     ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoCollapse);
+
+        const char* selectedRouteLabel = routeScenes[selectedRouteSceneIdx].second.c_str();
+        if (ImGui::BeginCombo("Destino", selectedRouteLabel)) {
+            for (int i = 0; i < static_cast<int>(routeScenes.size()); ++i) {
+                const bool isSelected = (selectedRouteSceneIdx == i);
+                if (ImGui::Selectable(routeScenes[i].second.c_str(), isSelected)) {
+                    selectedRouteSceneIdx = i;
+                }
+                if (isSelected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        if (ImGui::Button("Trazar ruta", ImVec2(122, 0))) {
+            routeActive = true;
+            routeTargetScene = routeScenes[selectedRouteSceneIdx].first;
+            routeRefreshCooldown = 0.0f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Limpiar", ImVec2(122, 0))) {
+            routeActive = false;
+            routeTargetScene.clear();
+            routeScenePlan.clear();
+            routePathPoints.clear();
+            routeNextHint.clear();
+        }
+
+        if (routeActive) {
+            ImGui::Separator();
+            ImGui::TextWrapped("Destino: %s", sceneDisplayName(routeTargetScene).c_str());
+            ImGui::TextWrapped("%s", routeNextHint.c_str());
+        }
+
+        ImGui::End();
 
         ImGui::SetNextWindowSize(ImVec2(360, 360), ImGuiCond_FirstUseEver);
         ImGui::Begin("Control Panel");
