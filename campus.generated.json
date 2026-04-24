@@ -1,166 +1,393 @@
 {
-  "scenes": {
-    "Exteriorcafeteria": {
-      "pngPath": "assets/maps/Exteriorcafeteria.png",
-      "spawns": {
-        "ext_from_biblio": {
-          "x": 618.0,
-          "y": 425.0
-        },
-        "ext_from_bus": {
-          "x": 1270.0,
-          "y": 815.0
-        },
-        "ext_from_intcafe": {
-          "x": 283.0,
-          "y": 425.0
-        },
-        "ext_from_piso4_main_L": {
-          "x": 1150.0,
-          "y": 525.0
-        },
-        "ext_from_piso4_main_R": {
-          "x": 1150.0,
-          "y": 525.0
-        },
-        "ext_from_piso4_sec": {
-          "x": 803.4000244140625,
-          "y": 432.8999938964844
-        }
-      },
-      "tmjPath": "assets/maps/Exteriorcafeteria.tmj"
+  "edges": [
+    {
+      "base_weight": 51.50038834805034,
+      "blocked_for_mr": false,
+      "from": "biblio",
+      "id": "ext_biblio",
+      "mobility_weight": 51.50038834805034,
+      "to": "exteriorcafeteria",
+      "type": "Portal"
     },
-    "Interiorcafeteria": {
-      "pngPath": "assets/maps/Interiorcafeteria.png",
-      "spawns": {
-        "intcafe_arrive": {
-          "x": 805.0,
-          "y": 160.0
-        }
-      },
-      "tmjPath": "assets/maps/Interiorcafeteria.tmj"
+    {
+      "base_weight": 19.059118552545918,
+      "blocked_for_mr": false,
+      "from": "exteriorcafeteria",
+      "id": "bus_ext",
+      "mobility_weight": 19.059118552545918,
+      "to": "paradadebus",
+      "type": "Portal"
     },
-    "Paradadebus": {
-      "pngPath": "assets/maps/Paradadebus.png",
-      "spawns": {
-        "bus_arrive": {
-          "x": 1080.0,
-          "y": 800.0
-        }
-      },
-      "tmjPath": "assets/maps/Paradadebus.tmj"
+    {
+      "base_weight": 58.54135290544625,
+      "blocked_for_mr": false,
+      "from": "exteriorcafeteria",
+      "id": "ext_intcafe",
+      "mobility_weight": 58.54135290544625,
+      "to": "interiorcafeteria",
+      "type": "Portal"
     },
-    "biblio": {
-      "pngPath": "assets/maps/biblio.png",
-      "spawns": {
-        "biblio_main_arrive": {
-          "x": 116.0,
-          "y": 540.0
-        }
-      },
-      "tmjPath": "assets/maps/biblio.tmj"
+    {
+      "base_weight": 58.00215513237418,
+      "blocked_for_mr": false,
+      "from": "exteriorcafeteria",
+      "id": "ext_piso4_main",
+      "mobility_weight": 58.00215513237418,
+      "to": "piso4",
+      "type": "Portal Principal"
     },
-    "piso1": {
-      "pngPath": "assets/maps/piso 1.png",
-      "spawns": {
-        "elevator_arrive": {
-          "x": 570.0,
-          "y": 270.0
-        },
-        "stair_left_arrive": {
-          "x": 47.0,
-          "y": 205.0
-        },
-        "stair_right_arrive": {
-          "x": 955.0,
-          "y": 205.0
-        }
-      },
-      "tmjPath": "assets/maps/piso1.tmj"
+    {
+      "base_weight": 80.1584933120692,
+      "blocked_for_mr": false,
+      "from": "exteriorcafeteria",
+      "id": "ext_piso4_sec",
+      "mobility_weight": 80.1584933120692,
+      "to": "piso4",
+      "type": "Portal Secundario"
     },
-    "piso2": {
-      "pngPath": "assets/maps/piso2.png",
-      "spawns": {
-        "elevator_arrive": {
-          "x": 572.0,
-          "y": 250.0
-        },
-        "stair_left_arrive": {
-          "x": 112.0,
-          "y": 210.0
-        },
-        "stair_right_arrive": {
-          "x": 930.0,
-          "y": 205.0
-        }
-      },
-      "tmjPath": "assets/maps/piso2.tmj"
+    {
+      "base_weight": 2.009975124224178,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "elevador_1_2",
+      "mobility_weight": 2.009975124224178,
+      "to": "piso2",
+      "type": "Elevador"
     },
-    "piso3": {
-      "pngPath": "assets/maps/piso 3.png",
-      "spawns": {
-        "elevator_arrive": {
-          "x": 572.0,
-          "y": 250.0
-        },
-        "stair_left_arrive": {
-          "x": 112.0,
-          "y": 210.0
-        },
-        "stair_right_arrive": {
-          "x": 930.0,
-          "y": 205.0
-        }
-      },
-      "tmjPath": "assets/maps/piso3.tmj"
+    {
+      "base_weight": 6.519202405202648,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_izq_1_2",
+      "mobility_weight": null,
+      "to": "piso2",
+      "type": "Escalera Izquierda"
     },
-    "piso4": {
-      "pngPath": "assets/maps/piso 4.png",
-      "spawns": {
-        "elevator_arrive": {
-          "x": 620.0,
-          "y": 245.0
-        },
-        "piso4_main_L_arrive": {
-          "x": 570.0,
-          "y": 520.0
-        },
-        "piso4_main_R_arrive": {
-          "x": 725.0,
-          "y": 520.0
-        },
-        "piso4_sec_arrive": {
-          "x": 32.0,
-          "y": 215.0
-        },
-        "stair_left_arrive": {
-          "x": 52.0,
-          "y": 205.0
-        },
-        "stair_right_arrive": {
-          "x": 935.0,
-          "y": 205.0
-        }
-      },
-      "tmjPath": "assets/maps/piso 4.tmj"
+    {
+      "base_weight": 2.5,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_der_1_2",
+      "mobility_weight": null,
+      "to": "piso2",
+      "type": "Escalera Derecha"
     },
-    "piso5": {
-      "pngPath": "assets/maps/piso 5.png",
-      "spawns": {
-        "elevator_arrive": {
-          "x": 572.0,
-          "y": 250.0
-        },
-        "stair_left_arrive": {
-          "x": 117.0,
-          "y": 205.0
-        },
-        "stair_right_arrive": {
-          "x": 930.0,
-          "y": 205.0
-        }
-      },
-      "tmjPath": "assets/maps/piso 5.tmj"
+    {
+      "base_weight": 2.009975124224178,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "elevador_1_3",
+      "mobility_weight": 2.009975124224178,
+      "to": "piso3",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 6.519202405202648,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_izq_1_3",
+      "mobility_weight": null,
+      "to": "piso3",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 2.5,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_der_1_3",
+      "mobility_weight": null,
+      "to": "piso3",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 5.5901699437494745,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "elevador_1_4",
+      "mobility_weight": 5.5901699437494745,
+      "to": "piso4",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 0.5,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_izq_1_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 2.0,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_der_1_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 2.009975124224178,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "elevador_1_5",
+      "mobility_weight": 2.009975124224178,
+      "to": "piso5",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 7.0,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_izq_1_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 2.5,
+      "blocked_for_mr": true,
+      "from": "piso1",
+      "id": "esc_der_1_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "elevador_2_3",
+      "mobility_weight": 0.0,
+      "to": "piso3",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_izq_2_3",
+      "mobility_weight": null,
+      "to": "piso3",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_der_2_3",
+      "mobility_weight": null,
+      "to": "piso3",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 4.825971404805462,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "elevador_2_4",
+      "mobility_weight": 4.825971404805462,
+      "to": "piso4",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 6.020797289396148,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_izq_2_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.5,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_der_2_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "elevador_2_5",
+      "mobility_weight": 0.0,
+      "to": "piso5",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 0.7071067811865476,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_izq_2_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": true,
+      "from": "piso2",
+      "id": "esc_der_2_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 4.825971404805462,
+      "blocked_for_mr": false,
+      "from": "piso3",
+      "id": "elevador_3_4",
+      "mobility_weight": 4.825971404805462,
+      "to": "piso4",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 6.020797289396148,
+      "blocked_for_mr": true,
+      "from": "piso3",
+      "id": "esc_izq_3_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.5,
+      "blocked_for_mr": true,
+      "from": "piso3",
+      "id": "esc_der_3_4",
+      "mobility_weight": null,
+      "to": "piso4",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": false,
+      "from": "piso3",
+      "id": "elevador_3_5",
+      "mobility_weight": 0.0,
+      "to": "piso5",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 0.7071067811865476,
+      "blocked_for_mr": true,
+      "from": "piso3",
+      "id": "esc_izq_3_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.0,
+      "blocked_for_mr": true,
+      "from": "piso3",
+      "id": "esc_der_3_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 4.825971404805462,
+      "blocked_for_mr": false,
+      "from": "piso4",
+      "id": "elevador_4_5",
+      "mobility_weight": 4.825971404805462,
+      "to": "piso5",
+      "type": "Elevador"
+    },
+    {
+      "base_weight": 6.5,
+      "blocked_for_mr": true,
+      "from": "piso4",
+      "id": "esc_izq_4_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Izquierda"
+    },
+    {
+      "base_weight": 0.5,
+      "blocked_for_mr": true,
+      "from": "piso4",
+      "id": "esc_der_4_5",
+      "mobility_weight": null,
+      "to": "piso5",
+      "type": "Escalera Derecha"
     }
-  }
+  ],
+  "nodes": [
+    {
+      "id": "biblio",
+      "name": "Biblioteca",
+      "type": "Biblioteca",
+      "x": 116.0,
+      "y": 540.0,
+      "z": 0.0
+    },
+    {
+      "id": "exteriorcafeteria",
+      "name": "Exterior Cafeteria",
+      "type": "Exterior",
+      "x": 1270.0,
+      "y": 815.0,
+      "z": 0.0
+    },
+    {
+      "id": "interiorcafeteria",
+      "name": "Interior Cafeteria",
+      "type": "Interior",
+      "x": 805.0,
+      "y": 160.0,
+      "z": 0.0
+    },
+    {
+      "id": "paradadebus",
+      "name": "Parada de Bus",
+      "type": "Exterior",
+      "x": 1080.0,
+      "y": 800.0,
+      "z": 0.0
+    },
+    {
+      "id": "piso1",
+      "name": "Piso 1",
+      "type": "K-5",
+      "x": 570.0,
+      "y": 270.0,
+      "z": 0.0
+    },
+    {
+      "id": "piso2",
+      "name": "Piso 2",
+      "type": "K-5",
+      "x": 572.0,
+      "y": 250.0,
+      "z": 0.0
+    },
+    {
+      "id": "piso3",
+      "name": "Piso 3",
+      "type": "K-5",
+      "x": 572.0,
+      "y": 250.0,
+      "z": 0.0
+    },
+    {
+      "id": "piso4",
+      "name": "Piso 4",
+      "type": "K-5",
+      "x": 620.0,
+      "y": 245.0,
+      "z": 0.0
+    },
+    {
+      "id": "piso5",
+      "name": "Piso 5",
+      "type": "K-5",
+      "x": 572.0,
+      "y": 250.0,
+      "z": 0.0
+    }
+  ]
 }

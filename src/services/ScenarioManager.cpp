@@ -29,33 +29,13 @@ std::vector<std::string> ScenarioManager::applyProfile(const CampusGraph& graph,
     waypoints.push_back(origin);
 
     if (student_type_ == StudentType::NEW_STUDENT) {
-        std::string bibliotecaId;
-        std::string sodaId;
-        for (const auto& id : graph.nodeIds()) {
-            try {
-                const auto& n = graph.getNode(id);
-                const std::string lowerName = toLower(n.name);
-                const std::string lowerType = toLower(n.type);
-                const std::string joined = lowerName + " " + lowerType;
-                if (bibliotecaId.empty() &&
-                    (joined.find("bibli") != std::string::npos || joined.find("biblio") != std::string::npos)) {
-                    bibliotecaId = id;
-                }
-                if (sodaId.empty() &&
-                    (joined.find("soda") != std::string::npos ||
-                     joined.find("comedor") != std::string::npos ||
-                     containsAll(joined, {"cafeter"}))) {
-                    sodaId = id;
-                }
-            } catch (...) {}
-        }
-
-        if (!bibliotecaId.empty() && bibliotecaId != origin && bibliotecaId != destination) {
-            waypoints.push_back(bibliotecaId);
-        }
-        if (!sodaId.empty() && sodaId != origin && sodaId != destination &&
-            (waypoints.empty() || waypoints.back() != sodaId)) {
-            waypoints.push_back(sodaId);
+        constexpr const char* mandatoryStops[] = {"biblio", "interiorcafeteria"};
+        for (const char* stop : mandatoryStops) {
+            if (!graph.hasNode(stop)) continue;
+            if (origin == stop || destination == stop) continue;
+            if (std::find(waypoints.begin(), waypoints.end(), stop) == waypoints.end()) {
+                waypoints.push_back(stop);
+            }
         }
     }
 
@@ -63,4 +43,29 @@ std::vector<std::string> ScenarioManager::applyProfile(const CampusGraph& graph,
         waypoints.push_back(destination);
     }
     return waypoints;
+}
+
+PathResult ScenarioManager::buildProfiledPath(const CampusGraph& graph,
+                                              const std::string& origin,
+                                              const std::string& destination) const {
+    PathResult merged;
+    const auto waypoints = applyProfile(graph, origin, destination);
+    if (waypoints.size() < 2) return merged;
+
+    merged.found = true;
+    for (size_t i = 1; i < waypoints.size(); ++i) {
+        const PathResult segment = Algorithms::findPath(
+            graph, waypoints[i - 1], waypoints[i], mobility_reduced_, false);
+        if (!segment.found || segment.path.empty()) {
+            return {};
+        }
+
+        merged.total_weight += segment.total_weight;
+        if (merged.path.empty()) {
+            merged.path = segment.path;
+        } else {
+            merged.path.insert(merged.path.end(), segment.path.begin() + 1, segment.path.end());
+        }
+    }
+    return merged;
 }

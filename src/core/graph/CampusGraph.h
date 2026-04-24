@@ -16,7 +16,8 @@ public:
     int nodeCount() const;
     int edgeCount() const;
     bool hasNode(const std::string& id) const;
-    void setEdgeBlocked(const std::string& from, const std::string& to, bool blocked);
+    void setEdgeBlocked(const std::string& from, const std::string& to, bool blocked,
+                        const std::string& type = "");
     void setNodeBlocked(const std::string& id, bool blocked);
     void unblockAllEdges();
 

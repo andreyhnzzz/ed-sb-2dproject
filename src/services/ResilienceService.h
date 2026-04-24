@@ -18,9 +18,13 @@ public:
     PathResult findAlternatePath(const std::string& from, const std::string& to, bool mobilityReduced);
     std::vector<std::pair<std::string,std::string>> getBlockedEdges() const;
     std::vector<std::string> getBlockedNodes() const;
+    bool isStillConnected() const { return still_connected_; }
 
 private:
+    void refreshConnectivity();
+
     CampusGraph& graph_;
     std::vector<std::pair<std::string,std::string>> blocked_edges_;
     std::vector<std::string> blocked_nodes_;
+    bool still_connected_{true};
 };

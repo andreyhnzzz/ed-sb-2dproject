@@ -92,6 +92,7 @@ set(SOURCES
         src/core/graph/Algorithms.cpp
         src/repositories/JsonGraphRepository.cpp
         src/services/NavigationService.cpp
+        src/services/DataManager.cpp
         src/services/ScenarioManager.cpp
         src/services/ComplexityAnalyzer.cpp
         src/services/ResilienceService.cpp

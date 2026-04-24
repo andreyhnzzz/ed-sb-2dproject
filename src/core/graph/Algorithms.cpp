@@ -11,6 +11,8 @@
 bool Algorithms::isAllowed(const Edge& e, bool mobility_reduced, bool ignore_currently_blocked) {
     if (!ignore_currently_blocked && e.currently_blocked) return false;
     if (mobility_reduced && e.blocked_for_mr) return false;
+    const double weight = effectiveWeight(e, mobility_reduced);
+    if (!std::isfinite(weight)) return false;
     return true;
 }
 

@@ -45,12 +45,13 @@ int CampusGraph::nodeCount() const { return static_cast<int>(nodes_.size()); }
 int CampusGraph::edgeCount() const { return edge_count_; }
 bool CampusGraph::hasNode(const std::string& id) const { return nodes_.count(id) > 0; }
 
-void CampusGraph::setEdgeBlocked(const std::string& from, const std::string& to, bool blocked) {
+void CampusGraph::setEdgeBlocked(const std::string& from, const std::string& to, bool blocked,
+                                 const std::string& type) {
     for (auto& e : adj_[from]) {
-        if (e.to == to) e.currently_blocked = blocked;
+        if (e.to == to && (type.empty() || e.type == type)) e.currently_blocked = blocked;
     }
     for (auto& e : adj_[to]) {
-        if (e.to == from) e.currently_blocked = blocked;
+        if (e.to == from && (type.empty() || e.type == type)) e.currently_blocked = blocked;
     }
 }
 

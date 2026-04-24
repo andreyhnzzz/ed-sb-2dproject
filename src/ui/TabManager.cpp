@@ -55,15 +55,8 @@ static PathResult runProfiledPathDijkstra(const CampusGraph& graph,
                                           ScenarioManager& scenarioManager,
                                           const std::string& origin,
                                           const std::string& destination) {
-    const auto waypoints = scenarioManager.applyProfile(graph, origin, destination);
-    if (waypoints.size() < 2) return {};
-
-    std::vector<PathResult> segments;
-    segments.reserve(waypoints.size() - 1);
-    for (size_t i = 1; i < waypoints.size(); ++i) {
-        segments.push_back(navService.findPath(waypoints[i - 1], waypoints[i], scenarioManager.isMobilityReduced()));
-    }
-    return mergeSegmentedPaths(segments);
+    (void)navService;
+    return scenarioManager.buildProfiledPath(graph, origin, destination);
 }
 
 static PathResult runProfiledAlternatePath(const CampusGraph& graph,
@@ -369,6 +362,7 @@ void renderAcademicControlPanel(
                 ImGui::Text("Ruta alterna encontrada: %s", state.lastPath.found ? "si" : "no");
                 ImGui::Text("Peso: %.2f", state.lastPath.total_weight);
             }
+            ImGui::Text("Conectividad global: %s", resilienceService.isStillConnected() ? "conexa" : "fragmentada");
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

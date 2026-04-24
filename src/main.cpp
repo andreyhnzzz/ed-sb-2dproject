@@ -15,8 +15,8 @@
 #include <cstdio>
 #include <cmath>
 #include <nlohmann/json.hpp>
-#include "repositories/JsonGraphRepository.h"
 #include "services/NavigationService.h"
+#include "services/DataManager.h"
 #include "services/ScenarioManager.h"
 #include "services/ComplexityAnalyzer.h"
 #include "services/ResilienceService.h"
@@ -440,19 +440,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    CampusGraph graph;
-    try {
-        graph = JsonGraphRepository::loadFromFile(path);
-    } catch (const std::exception& ex) {
-        std::cerr << "Error al cargar datos: " << ex.what() << "\n";
-        return 1;
-    }
-
-    NavigationService nav_service(graph);
-    ScenarioManager scenario_manager;
-    ComplexityAnalyzer complexity_analyzer(graph);
-    ResilienceService resilience_service(graph);
-
     const int screenWidth = 1280;
     const int screenHeight = 720;
     InitWindow(screenWidth, screenHeight, "EcoCampusNav (Raylib)");
@@ -475,6 +462,30 @@ int main(int argc, char* argv[]) {
 
     std::unordered_map<std::string, SceneConfig> sceneMap;
     for (const auto& sc : allScenes) sceneMap[sc.name] = sc;
+
+    std::unordered_map<std::string, std::string> sceneToTmjPath;
+    for (const auto& sc : allScenes) {
+        const std::string tmjPath = resolveAssetPath(argc > 0 ? argv[0] : nullptr, sc.tmjPath);
+        if (!tmjPath.empty()) {
+            sceneToTmjPath[sc.name] = tmjPath;
+        }
+    }
+
+    DataManager dataManager;
+    CampusGraph graph;
+    try {
+        graph = dataManager.loadCampusGraph(path, sceneToTmjPath);
+        const fs::path generatedGraphPath = fs::path(path).parent_path() / "campus.generated.json";
+        dataManager.exportResolvedGraph(graph, generatedGraphPath.string());
+    } catch (const std::exception& ex) {
+        std::cerr << "Error al cargar datos GIS: " << ex.what() << "\n";
+        return 1;
+    }
+
+    NavigationService nav_service(graph);
+    ScenarioManager scenario_manager;
+    ComplexityAnalyzer complexity_analyzer(graph);
+    ResilienceService resilience_service(graph);
 
     // Pre-load hitboxes for all scenes into sceneDataMap
     std::unordered_map<std::string, SceneData> sceneDataMap;
@@ -499,33 +510,6 @@ int main(int argc, char* argv[]) {
             std::cerr << "No se encontro " << sc.tmjPath << "\n";
         }
         sceneDataMap[sc.name] = std::move(sd);
-    }
-
-    // -----------------------------------------------------------------------
-    // Generate campus.generated.json from scene + spawn data
-    // -----------------------------------------------------------------------
-    {
-        json generated;
-        generated["scenes"] = json::object();
-        for (const auto& sc : allScenes) {
-            json sceneJson;
-            sceneJson["pngPath"] = sc.pngPath;
-            sceneJson["tmjPath"] = sc.tmjPath;
-            sceneJson["spawns"]  = json::object();
-            const auto it = allSceneSpawns.find(sc.name);
-            if (it != allSceneSpawns.end()) {
-                for (const auto& [sid, pos] : it->second) {
-                    sceneJson["spawns"][sid] = {{"x", pos.x}, {"y", pos.y}};
-                }
-            }
-            generated["scenes"][sc.name] = sceneJson;
-        }
-        const fs::path genPath = fs::path(path).parent_path() / "campus.generated.json";
-        std::ofstream genFile(genPath);
-        if (genFile.is_open()) {
-            genFile << generated.dump(2);
-            std::cout << "Generated: " << genPath << "\n";
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -580,9 +564,9 @@ int main(int argc, char* argv[]) {
         {"piso4","Piso 4"}, {"piso5","Piso 5"}
     };
     const std::vector<std::pair<std::string,std::string>> routeScenes = {
-        {"Paradadebus", "Parada de Bus"},
-        {"Exteriorcafeteria", "Exterior Cafeteria"},
-        {"Interiorcafeteria", "Interior Cafeteria"},
+        {"paradadebus", "Parada de Bus"},
+        {"exteriorcafeteria", "Exterior Cafeteria"},
+        {"interiorcafeteria", "Interior Cafeteria"},
         {"biblio", "Biblio"},
         {"piso1", "Piso 1"},
         {"piso2", "Piso 2"},
@@ -591,15 +575,31 @@ int main(int argc, char* argv[]) {
         {"piso5", "Piso 5"}
     };
 
+    auto canonicalSceneId = [](std::string sceneName) -> std::string {
+        std::transform(sceneName.begin(), sceneName.end(), sceneName.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return sceneName;
+    };
+
+    auto resolveSceneName = [&](const std::string& sceneId) -> std::string {
+        const std::string canonical = canonicalSceneId(sceneId);
+        for (const auto& [actualName, _] : sceneMap) {
+            if (canonicalSceneId(actualName) == canonical) return actualName;
+        }
+        return sceneId;
+    };
+
     auto sceneDisplayName = [&](const std::string& sceneName) -> std::string {
+        const std::string canonical = canonicalSceneId(sceneName);
         for (const auto& [id, label] : routeScenes) {
-            if (id == sceneName) return label;
+            if (id == canonical) return label;
         }
         return sceneName;
     };
 
     auto sceneTargetPoint = [&](const std::string& sceneName) -> Vector2 {
-        const auto spawnMapIt = allSceneSpawns.find(sceneName);
+        const auto spawnMapIt = allSceneSpawns.find(resolveSceneName(sceneName));
         if (spawnMapIt == allSceneSpawns.end() || spawnMapIt->second.empty()) {
             return Vector2{0.0f, 0.0f};
         }
@@ -740,7 +740,9 @@ int main(int argc, char* argv[]) {
     // Scene state
     std::string currentSceneName = initialSceneName;
 
-    TabManagerState tabState = createTabManagerState(graph, path);
+    const std::string generatedGraphPath =
+        (fs::path(path).parent_path() / "campus.generated.json").string();
+    TabManagerState tabState = createTabManagerState(graph, generatedGraphPath);
     int selectedRouteSceneIdx = 0;
     bool routeActive = false;
     std::string routeTargetScene;
@@ -813,32 +815,44 @@ int main(int argc, char* argv[]) {
             const bool sceneChanged = routePathScene != currentSceneName;
 
             if (routeRefreshCooldown <= 0.0f || mobilityChanged || movedEnough || sceneChanged) {
+                const std::string currentSceneId = canonicalSceneId(currentSceneName);
                 routeMobilityReduced = scenario_manager.isMobilityReduced();
                 routeAnchorPos = playerPos;
                 routePathScene = currentSceneName;
                 routePathPoints.clear();
-                routeScenePlan = buildScenePlan(currentSceneName, routeTargetScene,
-                                                sceneLinks, routeMobilityReduced);
+                const PathResult routedPath =
+                    scenario_manager.buildProfiledPath(graph, currentSceneId, routeTargetScene);
+                routeScenePlan = routedPath.path;
                 routeRefreshCooldown = 0.20f;
 
-                if (routeScenePlan.empty()) {
+                tabState.lastPath = routedPath;
+                tabState.hasPath = routedPath.found;
+                tabState.lastStats = complexity_analyzer.analyze(currentSceneId, routeMobilityReduced);
+                tabState.lastComparison = complexity_analyzer.compareAlgorithms(
+                    currentSceneId, routeTargetScene, routeMobilityReduced);
+                tabState.hasComparison = true;
+
+                if (!routedPath.found || routeScenePlan.empty()) {
                     routeNextHint = "No hay conexion disponible";
-                } else if (currentSceneName == routeTargetScene) {
+                } else if (currentSceneId == routeTargetScene) {
                     const Vector2 goal = sceneTargetPoint(routeTargetScene);
                     routePathPoints = buildWalkablePath(mapData, playerPos, goal);
                     routeNextHint = distanceBetween(playerPos, goal) <= 24.0f
                         ? "Destino alcanzado"
                         : "Sigue la ruta hasta el destino";
                 } else {
-                    const std::string nextScene = routeScenePlan.size() > 1
-                        ? routeScenePlan[1]
+                    const auto currentIt = std::find(routeScenePlan.begin(), routeScenePlan.end(), currentSceneId);
+                    const std::string nextScene = (currentIt != routeScenePlan.end() &&
+                                                   std::next(currentIt) != routeScenePlan.end())
+                        ? *std::next(currentIt)
                         : routeTargetScene;
                     float bestLen = std::numeric_limits<float>::max();
                     std::string bestLabel;
                     std::vector<Vector2> bestPath;
 
                     for (const auto& link : sceneLinks) {
-                        if (link.fromScene != currentSceneName || link.toScene != nextScene ||
+                        if (canonicalSceneId(link.fromScene) != currentSceneId ||
+                            canonicalSceneId(link.toScene) != nextScene ||
                             !isLinkAllowed(link, routeMobilityReduced)) {
                             continue;
                         }
