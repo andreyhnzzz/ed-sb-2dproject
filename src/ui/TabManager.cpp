@@ -80,7 +80,7 @@ static CampusValidationReport validateCampusJson(const std::string& campusJsonPa
     CampusValidationReport report;
     std::ifstream input(campusJsonPath);
     if (!input.is_open()) {
-        report.issues.push_back("No se pudo abrir campus.json para validacion.");
+        report.issues.push_back("Could not open campus.json for validation.");
         return report;
     }
 
@@ -88,13 +88,13 @@ static CampusValidationReport validateCampusJson(const std::string& campusJsonPa
     try {
         input >> data;
     } catch (...) {
-        report.issues.push_back("campus.json tiene formato JSON invalido.");
+        report.issues.push_back("campus.json has invalid JSON format.");
         return report;
     }
 
     if (!data.contains("nodes") || !data["nodes"].is_array() ||
         !data.contains("edges") || !data["edges"].is_array()) {
-        report.issues.push_back("campus.json debe contener arreglos 'nodes' y 'edges'.");
+        report.issues.push_back("campus.json must contain 'nodes' and 'edges' arrays.");
         return report;
     }
 
@@ -122,15 +122,15 @@ static CampusValidationReport validateCampusJson(const std::string& campusJsonPa
         }
     }
 
-    if (report.nodeCount < 8) report.issues.push_back("Se requieren al menos 8 nodos.");
-    if (report.edgeCount < 10) report.issues.push_back("Se requieren al menos 10 aristas.");
+    if (report.nodeCount < 8) report.issues.push_back("At least 8 nodes are required.");
+    if (report.edgeCount < 10) report.issues.push_back("At least 10 edges are required.");
     if (report.edgesMissingMobilityFields > 0) {
-        report.issues.push_back("Hay aristas sin mobility_weight o blocked_for_mr.");
+        report.issues.push_back("Some edges are missing mobility_weight or blocked_for_mr.");
     }
-    if (!report.hasBibliotecaNode) report.issues.push_back("No se detecto nodo de Biblioteca.");
-    if (!report.hasSodaOrComedorNode) report.issues.push_back("No se detecto nodo de Soda/Comedor.");
+    if (!report.hasBibliotecaNode) report.issues.push_back("No Library node detected.");
+    if (!report.hasSodaOrComedorNode) report.issues.push_back("No Cafeteria/Dining node detected.");
     if (report.edgesWithNonPositiveWeight > 0) {
-        report.issues.push_back("Hay aristas con peso base no positivo.");
+        report.issues.push_back("Some edges have non-positive base weight.");
     }
 
     return report;
@@ -146,6 +146,54 @@ TabManagerState createTabManagerState(const CampusGraph& graph, const std::strin
     std::snprintf(state.endId, sizeof(state.endId), "%s", end.c_str());
     state.validation = validateCampusJson(campusJsonPath);
     return state;
+}
+
+static void renderRouteControlsContent(
+    int& selectedRouteSceneIdx,
+    bool& routeActive,
+    std::string& routeTargetScene,
+    std::vector<std::string>& routeScenePlan,
+    std::vector<Vector2>& routePathPoints,
+    std::string& routeNextHint,
+    float& routeRefreshCooldown,
+    const std::vector<std::pair<std::string, std::string>>& routeScenes,
+    const std::function<std::string(const std::string&)>& sceneDisplayName) {
+    const char* selectedRouteLabel = routeScenes[selectedRouteSceneIdx].second.c_str();
+    if (ImGui::BeginCombo("Destination", selectedRouteLabel)) {
+        for (int i = 0; i < static_cast<int>(routeScenes.size()); ++i) {
+            const bool isSelected = selectedRouteSceneIdx == i;
+            if (ImGui::Selectable(routeScenes[i].second.c_str(), isSelected)) selectedRouteSceneIdx = i;
+            if (isSelected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::Button("Draw Route", ImVec2(122, 0))) {
+        routeActive = true;
+        routeTargetScene = routeScenes[selectedRouteSceneIdx].first;
+        routeRefreshCooldown = 0.0f;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear", ImVec2(122, 0))) {
+        routeActive = false;
+        routeTargetScene.clear();
+        routeScenePlan.clear();
+        routePathPoints.clear();
+        routeNextHint.clear();
+    }
+
+    if (routeActive) {
+        ImGui::Separator();
+        ImGui::TextWrapped("Destination: %s", sceneDisplayName(routeTargetScene).c_str());
+        ImGui::TextWrapped("%s", routeNextHint.c_str());
+        if (!routeScenePlan.empty()) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Scene plan:");
+            for (const auto& sceneId : routeScenePlan) {
+                ImGui::BulletText("%s", sceneDisplayName(sceneId).c_str());
+            }
+        }
+    }
 }
 
 void renderMinimapRouteWindow(
@@ -164,39 +212,190 @@ void renderMinimapRouteWindow(
                                    static_cast<float>(screenHeight - 334)),
                             ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(270, 150), ImGuiCond_Always);
-    ImGui::Begin("Ruta minimapa", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("Minimap Route", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
-    const char* selectedRouteLabel = routeScenes[selectedRouteSceneIdx].second.c_str();
-    if (ImGui::BeginCombo("Destino", selectedRouteLabel)) {
-        for (int i = 0; i < static_cast<int>(routeScenes.size()); ++i) {
-            const bool isSelected = selectedRouteSceneIdx == i;
-            if (ImGui::Selectable(routeScenes[i].second.c_str(), isSelected)) selectedRouteSceneIdx = i;
-            if (isSelected) ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndCombo();
+    renderRouteControlsContent(selectedRouteSceneIdx, routeActive, routeTargetScene,
+                               routeScenePlan, routePathPoints, routeNextHint,
+                               routeRefreshCooldown, routeScenes, sceneDisplayName);
+    ImGui::End();
+}
+
+static void renderAcademicControlPanelContent(
+    TabManagerState& state,
+    NavigationService& navService,
+    ScenarioManager& scenarioManager,
+    ComplexityAnalyzer& complexityAnalyzer,
+    ResilienceService& resilienceService,
+    const CampusGraph& graph,
+    const std::string& currentSceneName,
+    bool& showHitboxes,
+    bool& showTriggers) {
+    ImGui::Text("Current scene: %s", currentSceneName.c_str());
+    ImGui::Checkbox("Hitboxes", &showHitboxes);
+    ImGui::SameLine();
+    ImGui::Checkbox("Triggers", &showTriggers);
+    ImGui::Separator();
+
+    bool mobilityReduced = scenarioManager.isMobilityReduced();
+    if (ImGui::Checkbox("Reduced mobility", &mobilityReduced)) {
+        scenarioManager.setMobilityReduced(mobilityReduced);
     }
 
-    if (ImGui::Button("Trazar ruta", ImVec2(122, 0))) {
-        routeActive = true;
-        routeTargetScene = routeScenes[selectedRouteSceneIdx].first;
-        routeRefreshCooldown = 0.0f;
+    int studentType = scenarioManager.getStudentType() == StudentType::NEW_STUDENT ? 0 : 1;
+    if (ImGui::RadioButton("New student", studentType == 0)) {
+        scenarioManager.setStudentType(StudentType::NEW_STUDENT);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Limpiar", ImVec2(122, 0))) {
-        routeActive = false;
-        routeTargetScene.clear();
-        routeScenePlan.clear();
-        routePathPoints.clear();
-        routeNextHint.clear();
+    if (ImGui::RadioButton("Regular student", studentType == 1)) {
+        scenarioManager.setStudentType(StudentType::REGULAR_STUDENT);
     }
 
-    if (routeActive) {
-        ImGui::Separator();
-        ImGui::TextWrapped("Destino: %s", sceneDisplayName(routeTargetScene).c_str());
-        ImGui::TextWrapped("%s", routeNextHint.c_str());
+    ImGui::InputText("Origin", state.startId, sizeof(state.startId));
+    ImGui::InputText("Destination", state.endId, sizeof(state.endId));
+    ImGui::InputText("Node (resilience)", state.nodeId, sizeof(state.nodeId));
+    if (ImGui::BeginTabBar("RubricaTabs")) {
+        if (ImGui::BeginTabItem("1.DFS")) {
+            if (ImGui::Button("Run DFS")) {
+                state.lastTraversal = navService.runDfs(state.startId, scenarioManager.isMobilityReduced());
+                state.hasTraversal = true;
+                state.lastAction = "DFS";
+            }
+            if (state.lastAction == "DFS" && state.hasTraversal) {
+                ImGui::Text("Visited nodes: %d", state.lastTraversal.nodes_visited);
+                ImGui::Text("Time: %lld us", state.lastTraversal.elapsed_us);
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("2.BFS")) {
+            if (ImGui::Button("Run BFS")) {
+                state.lastTraversal = navService.runBfs(state.startId, scenarioManager.isMobilityReduced());
+                state.hasTraversal = true;
+                state.lastAction = "BFS";
+            }
+            if (state.lastAction == "BFS" && state.hasTraversal) {
+                ImGui::Text("Visited nodes: %d", state.lastTraversal.nodes_visited);
+                ImGui::Text("Time: %lld us", state.lastTraversal.elapsed_us);
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("3.Connectivity")) {
+            if (ImGui::Button("Check connectivity")) {
+                state.lastConnected = navService.checkConnectivity();
+                state.lastAction = "Connectivity";
+            }
+            ImGui::Text("Status: %s", state.lastConnected ? "Connected" : "Not connected");
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("4.Shortest Path")) {
+            if (ImGui::Button("Profiled Dijkstra")) {
+                state.lastPath = runProfiledPathDijkstra(graph, navService, scenarioManager, state.startId, state.endId);
+                state.hasPath = true;
+                state.lastAction = "PathDijkstra";
+            }
+            if (state.lastAction == "PathDijkstra" && state.hasPath) {
+                ImGui::Text("Found: %s", state.lastPath.found ? "yes" : "no");
+                ImGui::Text("Total weight: %.2f", state.lastPath.total_weight);
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("5.DFS Path")) {
+            if (ImGui::Button("Run DFS (rubric)")) {
+                state.lastPath = runProfiledPathDfs(graph, navService, scenarioManager, state.startId, state.endId);
+                state.hasPath = true;
+                state.lastAction = "PathDFS";
+            }
+            if (state.lastAction == "PathDFS" && state.hasPath) {
+                ImGui::Text("Found: %s", state.lastPath.found ? "yes" : "no");
+                ImGui::Text("Total weight: %.2f", state.lastPath.total_weight);
+                ImGui::Text("Path nodes:");
+                for (const auto& id : state.lastPath.path) ImGui::BulletText("%s", id.c_str());
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("6.Scenarios")) {
+            const auto prof = scenarioManager.applyProfile(graph, state.startId, state.endId);
+            ImGui::Text("Applied profile:");
+            for (const auto& step : prof) ImGui::BulletText("%s", step.c_str());
+            ImGui::TextWrapped("If student type is New, route is forced through Library and Cafeteria/Dining when compatible nodes exist.");
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("7.Complexity")) {
+            if (ImGui::Button("Compare BFS vs DFS")) {
+                state.lastStats = complexityAnalyzer.analyze(state.startId, scenarioManager.isMobilityReduced());
+                state.lastComparison = complexityAnalyzer.compareAlgorithms(
+                    state.startId, state.endId, scenarioManager.isMobilityReduced());
+                state.hasComparison = true;
+                state.lastAction = "Complexity";
+            }
+            if (state.hasComparison) {
+                for (const auto& stat : state.lastStats) {
+                    ImGui::Text("%s: %d nodes, %lld us", stat.algorithm.c_str(), stat.nodes_visited, stat.elapsed_us);
+                }
+                ImGui::Separator();
+                ImGui::Text("DFS->destination: %s", state.lastComparison.dfs_reaches_destination ? "yes" : "no");
+                ImGui::Text("BFS->destination: %s", state.lastComparison.bfs_reaches_destination ? "yes" : "no");
+                ImGui::Text("Node delta (BFS-DFS): %d", state.lastComparison.delta_nodes_visited);
+                ImGui::Text("Time delta us (BFS-DFS): %lld", state.lastComparison.delta_elapsed_us);
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("8.Resilience")) {
+            if (ImGui::Button("Alternate route")) {
+                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
+                state.hasPath = true;
+                state.lastAction = "AltPath";
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Block edge")) {
+                resilienceService.blockEdge(state.startId, state.endId);
+                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
+                state.hasPath = true;
+                state.lastAction = "BlockEdge";
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Block node")) {
+                resilienceService.blockNode(state.nodeId);
+                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
+                state.hasPath = true;
+                state.lastAction = "BlockNode";
+            }
+            if (ImGui::Button("Unblock all")) {
+                resilienceService.unblockAll();
+                state.lastAction = "UnblockAll";
+            }
+
+            const auto blockedNodes = resilienceService.getBlockedNodes();
+            if (!blockedNodes.empty()) {
+                ImGui::Text("Blocked nodes:");
+                for (const auto& id : blockedNodes) ImGui::BulletText("%s", id.c_str());
+            }
+            if (state.hasPath) {
+                ImGui::Text("Alternate route found: %s", state.lastPath.found ? "yes" : "no");
+                ImGui::Text("Weight: %.2f", state.lastPath.total_weight);
+            }
+            ImGui::Text("Global connectivity: %s", resilienceService.isStillConnected() ? "connected" : "fragmented");
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
 
-    ImGui::End();
+    ImGui::Separator();
+    ImGui::Text("campus.json validation");
+    ImGui::Text("Nodes=%d Edges=%d", state.validation.nodeCount, state.validation.edgeCount);
+    if (state.validation.issues.empty()) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Minimum validation OK");
+    } else {
+        for (const auto& issue : state.validation.issues) {
+            ImGui::BulletText("%s", issue.c_str());
+        }
+    }
 }
 
 void renderAcademicControlPanel(
@@ -210,174 +409,102 @@ void renderAcademicControlPanel(
     bool& showHitboxes,
     bool& showTriggers) {
     ImGui::SetNextWindowSize(ImVec2(430, 510), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Control Academico");
+    ImGui::Begin("Academic Control");
 
-    ImGui::Text("Escena actual: %s", currentSceneName.c_str());
-    ImGui::Checkbox("Hitboxes", &showHitboxes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Triggers", &showTriggers);
-    ImGui::Separator();
-
-    bool mobilityReduced = scenarioManager.isMobilityReduced();
-    if (ImGui::Checkbox("Movilidad reducida", &mobilityReduced)) {
-        scenarioManager.setMobilityReduced(mobilityReduced);
-    }
-
-    int studentType = scenarioManager.getStudentType() == StudentType::NEW_STUDENT ? 0 : 1;
-    if (ImGui::RadioButton("Estudiante nuevo", studentType == 0)) {
-        scenarioManager.setStudentType(StudentType::NEW_STUDENT);
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Estudiante regular", studentType == 1)) {
-        scenarioManager.setStudentType(StudentType::REGULAR_STUDENT);
-    }
-
-    ImGui::InputText("Origen", state.startId, sizeof(state.startId));
-    ImGui::InputText("Destino", state.endId, sizeof(state.endId));
-    ImGui::InputText("Nodo (resiliencia)", state.nodeId, sizeof(state.nodeId));
-    if (ImGui::BeginTabBar("RubricaTabs")) {
-        if (ImGui::BeginTabItem("1.DFS")) {
-            if (ImGui::Button("Ejecutar DFS")) {
-                state.lastTraversal = navService.runDfs(state.startId, scenarioManager.isMobilityReduced());
-                state.hasTraversal = true;
-                state.lastAction = "DFS";
-            }
-            if (state.lastAction == "DFS" && state.hasTraversal) {
-                ImGui::Text("Nodos visitados: %d", state.lastTraversal.nodes_visited);
-                ImGui::Text("Tiempo: %lld us", state.lastTraversal.elapsed_us);
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("2.BFS")) {
-            if (ImGui::Button("Ejecutar BFS")) {
-                state.lastTraversal = navService.runBfs(state.startId, scenarioManager.isMobilityReduced());
-                state.hasTraversal = true;
-                state.lastAction = "BFS";
-            }
-            if (state.lastAction == "BFS" && state.hasTraversal) {
-                ImGui::Text("Nodos visitados: %d", state.lastTraversal.nodes_visited);
-                ImGui::Text("Tiempo: %lld us", state.lastTraversal.elapsed_us);
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("3.Conectividad")) {
-            if (ImGui::Button("Evaluar conectividad")) {
-                state.lastConnected = navService.checkConnectivity();
-                state.lastAction = "Connectivity";
-            }
-            ImGui::Text("Estado: %s", state.lastConnected ? "Conexo" : "No conexo");
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("4.Camino Optimo")) {
-            if (ImGui::Button("Dijkstra perfilado")) {
-                state.lastPath = runProfiledPathDijkstra(graph, navService, scenarioManager, state.startId, state.endId);
-                state.hasPath = true;
-                state.lastAction = "PathDijkstra";
-            }
-            if (state.lastAction == "PathDijkstra" && state.hasPath) {
-                ImGui::Text("Encontrado: %s", state.lastPath.found ? "si" : "no");
-                ImGui::Text("Peso total: %.2f", state.lastPath.total_weight);
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("5.Camino DFS")) {
-            if (ImGui::Button("Ejecutar DFS (rubrica)")) {
-                state.lastPath = runProfiledPathDfs(graph, navService, scenarioManager, state.startId, state.endId);
-                state.hasPath = true;
-                state.lastAction = "PathDFS";
-            }
-            if (state.lastAction == "PathDFS" && state.hasPath) {
-                ImGui::Text("Encontrado: %s", state.lastPath.found ? "si" : "no");
-                ImGui::Text("Peso total: %.2f", state.lastPath.total_weight);
-                ImGui::Text("Nodos del camino:");
-                for (const auto& id : state.lastPath.path) ImGui::BulletText("%s", id.c_str());
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("6.Escenarios")) {
-            const auto prof = scenarioManager.applyProfile(graph, state.startId, state.endId);
-            ImGui::Text("Perfil aplicado:");
-            for (const auto& step : prof) ImGui::BulletText("%s", step.c_str());
-            ImGui::TextWrapped("Si es estudiante nuevo, se fuerza paso intermedio por Biblioteca y Soda/Comedor cuando existen nodos compatibles.");
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("7.Complejidad")) {
-            if (ImGui::Button("Comparar BFS vs DFS")) {
-                state.lastStats = complexityAnalyzer.analyze(state.startId, scenarioManager.isMobilityReduced());
-                state.lastComparison = complexityAnalyzer.compareAlgorithms(
-                    state.startId, state.endId, scenarioManager.isMobilityReduced());
-                state.hasComparison = true;
-                state.lastAction = "Complexity";
-            }
-            if (state.hasComparison) {
-                for (const auto& stat : state.lastStats) {
-                    ImGui::Text("%s: %d nodos, %lld us", stat.algorithm.c_str(), stat.nodes_visited, stat.elapsed_us);
-                }
-                ImGui::Separator();
-                ImGui::Text("DFS->destino: %s", state.lastComparison.dfs_reaches_destination ? "si" : "no");
-                ImGui::Text("BFS->destino: %s", state.lastComparison.bfs_reaches_destination ? "si" : "no");
-                ImGui::Text("Delta nodos (BFS-DFS): %d", state.lastComparison.delta_nodes_visited);
-                ImGui::Text("Delta tiempo us (BFS-DFS): %lld", state.lastComparison.delta_elapsed_us);
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("8.Resiliencia")) {
-            if (ImGui::Button("Ruta alterna")) {
-                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
-                state.hasPath = true;
-                state.lastAction = "AltPath";
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Bloquear arista")) {
-                resilienceService.blockEdge(state.startId, state.endId);
-                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
-                state.hasPath = true;
-                state.lastAction = "BlockEdge";
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Bloquear nodo")) {
-                resilienceService.blockNode(state.nodeId);
-                state.lastPath = runProfiledAlternatePath(graph, resilienceService, scenarioManager, state.startId, state.endId);
-                state.hasPath = true;
-                state.lastAction = "BlockNode";
-            }
-            if (ImGui::Button("Desbloquear todo")) {
-                resilienceService.unblockAll();
-                state.lastAction = "UnblockAll";
-            }
-
-            const auto blockedNodes = resilienceService.getBlockedNodes();
-            if (!blockedNodes.empty()) {
-                ImGui::Text("Nodos bloqueados:");
-                for (const auto& id : blockedNodes) ImGui::BulletText("%s", id.c_str());
-            }
-            if (state.hasPath) {
-                ImGui::Text("Ruta alterna encontrada: %s", state.lastPath.found ? "si" : "no");
-                ImGui::Text("Peso: %.2f", state.lastPath.total_weight);
-            }
-            ImGui::Text("Conectividad global: %s", resilienceService.isStillConnected() ? "conexa" : "fragmentada");
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-
-    ImGui::Separator();
-    ImGui::Text("Validacion campus.json");
-    ImGui::Text("Nodos=%d Aristas=%d", state.validation.nodeCount, state.validation.edgeCount);
-    if (state.validation.issues.empty()) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Validacion minima OK");
-    } else {
-        for (const auto& issue : state.validation.issues) {
-            ImGui::BulletText("%s", issue.c_str());
-        }
-    }
+    renderAcademicControlPanelContent(state, navService, scenarioManager, complexityAnalyzer,
+                                      resilienceService, graph, currentSceneName,
+                                      showHitboxes, showTriggers);
 
     ImGui::End();
 }
+
+void renderFullScreenInfoMenu(
+    bool& isOpen,
+    int screenWidth,
+    int screenHeight,
+    int& selectedRouteSceneIdx,
+    bool& routeActive,
+    std::string& routeTargetScene,
+    std::vector<std::string>& routeScenePlan,
+    std::vector<Vector2>& routePathPoints,
+    std::string& routeNextHint,
+    float& routeRefreshCooldown,
+    const std::vector<std::pair<std::string, std::string>>& routeScenes,
+    const std::function<std::string(const std::string&)>& sceneDisplayName,
+    TabManagerState& state,
+    NavigationService& navService,
+    ScenarioManager& scenarioManager,
+    ComplexityAnalyzer& complexityAnalyzer,
+    ResilienceService& resilienceService,
+    const CampusGraph& graph,
+    const std::string& currentSceneName,
+    bool& showHitboxes,
+    bool& showTriggers) {
+    if (!isOpen) return;
+
+    // 1) Nearly-solid panel backgrounds
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.0f, 16.0f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.06f, 0.08f, 0.12f, 0.96f));
+
+    // 2) Remove global dim behind menu (transparent root window)
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    // 3) Max text contrast
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.85f, 0.87f, 0.90f, 1.0f));
+
+    // 5) Lower blue saturation for controls
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.16f, 0.24f, 0.36f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.30f, 0.43f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.22f, 0.33f, 0.48f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.28f, 0.43f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.34f, 0.50f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.22f, 0.38f, 0.55f, 1.0f));
+
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(screenWidth),
+                                    static_cast<float>(screenHeight)),
+                             ImGuiCond_Always);
+    ImGui::Begin("Information Menu",
+                 &isOpen,
+                 ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoBackground);
+
+    ImGui::Text("Information menu");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(M to close)");
+    ImGui::Text("Current scene: %s", currentSceneName.c_str());
+    ImGui::TextUnformatted("UTF-8 test: aeioun Nu - us");
+    ImGui::Separator();
+
+    const ImVec2 region = ImGui::GetContentRegionAvail();
+    const float leftWidth = std::max(320.0f, region.x * 0.33f);
+    const float rightWidth = std::max(320.0f, region.x - leftWidth - 10.0f);
+    const float panelHeight = std::max(200.0f, region.y);
+
+    ImGui::BeginChild("RoutePanel", ImVec2(leftWidth, panelHeight), true, ImGuiWindowFlags_None);
+    ImGui::TextUnformatted("Route and navigation");
+    ImGui::Separator();
+    renderRouteControlsContent(selectedRouteSceneIdx, routeActive, routeTargetScene,
+                               routeScenePlan, routePathPoints, routeNextHint,
+                               routeRefreshCooldown, routeScenes, sceneDisplayName);
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("AcademicPanel", ImVec2(rightWidth, panelHeight), true,
+                      ImGuiWindowFlags_None);
+    ImGui::TextUnformatted("Academic control");
+    ImGui::Separator();
+    renderAcademicControlPanelContent(state, navService, scenarioManager, complexityAnalyzer,
+                                      resilienceService, graph, currentSceneName,
+                                      showHitboxes, showTriggers);
+    ImGui::EndChild();
+
+    ImGui::End();
+    ImGui::PopStyleColor(10);
+    ImGui::PopStyleVar();
+}
+

@@ -5,10 +5,27 @@
 #include <rlgl.h>
 #include <cstdio>
 #include <cstdint>
+#include <array>
+#include <string>
 
 namespace {
 static bool g_ready = false;
 static Texture2D g_fontTexture{};
+
+static std::string resolveUiFontPath() {
+    constexpr std::array<const char*, 6> kCandidates = {
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/tahoma.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\tahoma.ttf"
+    };
+    for (const char* c : kCandidates) {
+        if (FileExists(c)) return c;
+    }
+    return {};
+}
 
 static void updateInput() {
     ImGuiIO& io = ImGui::GetIO();
@@ -70,7 +87,7 @@ static void createFontsTexture() {
     fontImage.mipmaps = 1;
     fontImage.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
     g_fontTexture = LoadTextureFromImage(fontImage);
-    SetTextureFilter(g_fontTexture, TEXTURE_FILTER_POINT);
+    SetTextureFilter(g_fontTexture, TEXTURE_FILTER_BILINEAR);
     io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(static_cast<intptr_t>(g_fontTexture.id)));
 }
 
@@ -81,41 +98,63 @@ static void renderDrawData(ImDrawData* drawData) {
     const int fbHeight = static_cast<int>(drawData->DisplaySize.y * drawData->FramebufferScale.y);
     if (fbWidth <= 0 || fbHeight <= 0) return;
 
-    const ImVec2 clipOff = drawData->DisplayPos;
-    const ImVec2 clipScale = drawData->FramebufferScale;
+    auto setupRenderState = [drawData]() {
+        rlDrawRenderBatchActive();
+        rlDisableBackfaceCulling();
+        rlDisableDepthTest();
 
-    rlDrawRenderBatchActive();
-    rlDisableBackfaceCulling();
-    rlDisableDepthTest();
+        rlMatrixMode(RL_PROJECTION);
+        rlPushMatrix();
+        rlLoadIdentity();
+        rlOrtho(0.0f, drawData->DisplaySize.x, drawData->DisplaySize.y, 0.0f, -1.0f, 1.0f);
 
-    rlMatrixMode(RL_PROJECTION);
-    rlPushMatrix();
-    rlLoadIdentity();
-    rlOrtho(0.0f, drawData->DisplaySize.x, drawData->DisplaySize.y, 0.0f, -1.0f, 1.0f);
-    rlMatrixMode(RL_MODELVIEW);
-    rlPushMatrix();
-    rlLoadIdentity();
+        rlMatrixMode(RL_MODELVIEW);
+        rlPushMatrix();
+        rlLoadIdentity();
 
-    rlSetBlendMode(BLEND_ALPHA);
+        rlSetBlendMode(BLEND_ALPHA);
+    };
+    auto clearRenderState = []() {
+        rlMatrixMode(RL_MODELVIEW);
+        rlPopMatrix();
+        rlMatrixMode(RL_PROJECTION);
+        rlPopMatrix();
+        rlMatrixMode(RL_MODELVIEW);
+        rlLoadIdentity();
+        rlSetTexture(0);
+    };
+
+    setupRenderState();
 
     for (int n = 0; n < drawData->CmdListsCount; n++) {
         const ImDrawList* cmdList = drawData->CmdLists[n];
+        const ImDrawVert* vtxBuffer = cmdList->VtxBuffer.Data;
+        const ImDrawIdx* idxBuffer = cmdList->IdxBuffer.Data;
+        const int vtxCount = cmdList->VtxBuffer.Size;
 
         for (int cmdI = 0; cmdI < cmdList->CmdBuffer.Size; cmdI++) {
             const ImDrawCmd* pcmd = &cmdList->CmdBuffer[cmdI];
             if (pcmd->UserCallback != nullptr) {
+                if (pcmd->UserCallback == ImDrawCallback_ResetRenderState) {
+                    clearRenderState();
+                    setupRenderState();
+                    continue;
+                }
                 pcmd->UserCallback(cmdList, pcmd);
                 continue;
             }
 
-            const ImVec2 clipMin(
-                (pcmd->ClipRect.x - clipOff.x) * clipScale.x,
-                (pcmd->ClipRect.y - clipOff.y) * clipScale.y
-            );
-            const ImVec2 clipMax(
-                (pcmd->ClipRect.z - clipOff.x) * clipScale.x,
-                (pcmd->ClipRect.w - clipOff.y) * clipScale.y
-            );
+            ImVec2 clipMin(pcmd->ClipRect.x, pcmd->ClipRect.y);
+            ImVec2 clipMax(pcmd->ClipRect.z, pcmd->ClipRect.w);
+            clipMin.x = (clipMin.x - drawData->DisplayPos.x) * drawData->FramebufferScale.x;
+            clipMin.y = (clipMin.y - drawData->DisplayPos.y) * drawData->FramebufferScale.y;
+            clipMax.x = (clipMax.x - drawData->DisplayPos.x) * drawData->FramebufferScale.x;
+            clipMax.y = (clipMax.y - drawData->DisplayPos.y) * drawData->FramebufferScale.y;
+
+            if (clipMin.x < 0.0f) clipMin.x = 0.0f;
+            if (clipMin.y < 0.0f) clipMin.y = 0.0f;
+            if (clipMax.x > static_cast<float>(fbWidth)) clipMax.x = static_cast<float>(fbWidth);
+            if (clipMax.y > static_cast<float>(fbHeight)) clipMax.y = static_cast<float>(fbHeight);
             if (clipMax.x <= clipMin.x || clipMax.y <= clipMin.y) continue;
 
             const int scissorX = static_cast<int>(clipMin.x);
@@ -128,10 +167,12 @@ static void renderDrawData(ImDrawData* drawData) {
             rlSetTexture(textureId);
             rlBegin(RL_TRIANGLES);
 
-            const ImDrawVert* vtxBuffer = cmdList->VtxBuffer.Data + pcmd->VtxOffset;
-            const ImDrawIdx* idxBuffer = cmdList->IdxBuffer.Data + pcmd->IdxOffset;
             for (unsigned int i = 0; i < pcmd->ElemCount; i++) {
-                const ImDrawVert& v = vtxBuffer[idxBuffer[i]];
+                const ImDrawIdx idx = idxBuffer[pcmd->IdxOffset + i];
+                const unsigned int vertexIndex = static_cast<unsigned int>(pcmd->VtxOffset) +
+                                                 static_cast<unsigned int>(idx);
+                if (vertexIndex >= static_cast<unsigned int>(vtxCount)) continue;
+                const ImDrawVert& v = vtxBuffer[vertexIndex];
                 const ImU32 col = v.col;
                 const unsigned char r = static_cast<unsigned char>((col >> IM_COL32_R_SHIFT) & 0xFF);
                 const unsigned char g = static_cast<unsigned char>((col >> IM_COL32_G_SHIFT) & 0xFF);
@@ -147,14 +188,7 @@ static void renderDrawData(ImDrawData* drawData) {
             EndScissorMode();
         }
     }
-
-    rlMatrixMode(RL_MODELVIEW);
-    rlPopMatrix();
-    rlMatrixMode(RL_PROJECTION);
-    rlPopMatrix();
-    rlMatrixMode(RL_MODELVIEW);
-    rlLoadIdentity();
-    rlSetTexture(0);
+    clearRenderState();
 }
 } // namespace
 
@@ -169,24 +203,37 @@ void rlImGuiSetup(bool darkTheme) {
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 
     ImFontConfig fontCfg{};
-    fontCfg.OversampleH = 1;
-    fontCfg.OversampleV = 1;
-    fontCfg.PixelSnapH = true;
-    fontCfg.SizePixels = 16.0f;
+    fontCfg.OversampleH = 3;
+    fontCfg.OversampleV = 3;
+    fontCfg.PixelSnapH = false;
+    fontCfg.RasterizerMultiply = 1.0f;
+    fontCfg.SizePixels = 22.0f;
     io.Fonts->Clear();
-    const char* fontPath = "assets/fonts/04B_21__.TTF";
-    if (FileExists(fontPath)) {
-        const ImWchar* ranges = io.Fonts->GetGlyphRangesDefault();
-        if (!io.Fonts->AddFontFromFileTTF(fontPath, fontCfg.SizePixels, &fontCfg, ranges)) {
-            io.Fonts->AddFontDefault(&fontCfg);
+    ImFont* loadedFont = nullptr;
+    const std::string fontPath = resolveUiFontPath();
+    if (!fontPath.empty()) {
+        loadedFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(),
+                                                  fontCfg.SizePixels,
+                                                  &fontCfg,
+                                                  io.Fonts->GetGlyphRangesDefault());
+        if (loadedFont) {
+            TraceLog(LOG_INFO, "rlImGui: loaded UI font %s", fontPath.c_str());
         }
-    } else {
-        io.Fonts->AddFontDefault(&fontCfg);
     }
+    if (!loadedFont) {
+        loadedFont = io.Fonts->AddFontDefault(&fontCfg);
+        TraceLog(LOG_WARNING, "rlImGui: fallback to built-in default font");
+    }
+    io.FontDefault = loadedFont;
 
 
     if (darkTheme) ImGui::StyleColorsDark();
     else ImGui::StyleColorsLight();
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FramePadding = ImVec2(10.0f, 7.0f);
+    style.ItemSpacing = ImVec2(10.0f, 8.0f);
+    style.WindowPadding = ImVec2(14.0f, 12.0f);
 
     io.Fonts->Build();
     createFontsTexture();

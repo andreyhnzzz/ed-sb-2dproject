@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <sstream>
 #include <nlohmann/json.hpp>
 #include "services/NavigationService.h"
 #include "services/DataManager.h"
@@ -104,6 +105,13 @@ static float polylineLength(const std::vector<Vector2>& points) {
         total += distanceBetween(points[i - 1], points[i]);
     }
     return total;
+}
+
+static std::string formatElapsedTime(float elapsedSeconds) {
+    const int totalSeconds = std::max(0, static_cast<int>(std::round(elapsedSeconds)));
+    const int minutes = totalSeconds / 60;
+    const int seconds = totalSeconds % 60;
+    return TextFormat("%02d:%02d", minutes, seconds);
 }
 
 static bool isLinkAllowed(const SceneLink& link, bool mobilityReduced) {
@@ -431,18 +439,255 @@ static void clampCameraTarget(Camera2D& camera, const MapRenderData& mapData, in
     }
 }
 
+static bool drawRayButton(const Rectangle& r, const char* label, int fontSize,
+                          Color base, Color hover, Color active, Color textColor) {
+    const Vector2 mouse = GetMousePosition();
+    const bool inside = CheckCollisionPointRec(mouse, r);
+    const bool pressed = inside && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    const Color c = pressed ? active : (inside ? hover : base);
+    DrawRectangleRec(r, c);
+    const int tw = MeasureText(label, fontSize);
+    DrawText(label,
+             static_cast<int>(r.x + (r.width - tw) * 0.5f),
+             static_cast<int>(r.y + (r.height - fontSize) * 0.5f),
+             fontSize, textColor);
+    return pressed;
+}
+
+static void drawRaylibInfoMenu(
+    bool& isOpen,
+    int screenWidth,
+    int screenHeight,
+    int& selectedRouteSceneIdx,
+    bool& routeActive,
+    std::string& routeTargetScene,
+    float& routeProgressPct,
+    float& routeTravelElapsed,
+    bool& routeTravelCompleted,
+    float& routeLegStartDistance,
+    std::string& routeLegSceneId,
+    std::string& routeLegNextSceneId,
+    std::vector<std::string>& routeScenePlan,
+    std::vector<Vector2>& routePathPoints,
+    std::string& routeNextHint,
+    float& routeRefreshCooldown,
+    const std::vector<std::pair<std::string, std::string>>& routeScenes,
+    const std::function<std::string(const std::string&)>& sceneDisplayName,
+    const TabManagerState& state,
+    const std::string& currentSceneName,
+    bool showHitboxes,
+    bool showTriggers,
+    bool mobilityReduced,
+    StudentType studentType,
+    const std::vector<std::string>& blockedNodes,
+    bool resilienceConnected) {
+    if (!isOpen) return;
+
+    const float uiScale = std::clamp(static_cast<float>(screenHeight) / 900.0f, 1.0f, 1.45f);
+    const auto px = [uiScale](int base) {
+        return std::max(1, static_cast<int>(std::round(static_cast<float>(base) * uiScale)));
+    };
+
+    const int titleFont = px(22);
+    const int sectionTitleFont = px(24);
+    const int bodyFont = px(18);
+    const int bodyMutedFont = px(18);
+    const int topBarHeight = px(44);
+    const int panelMargin = px(16);
+    const int sectionPad = px(14);
+    const int buttonHeight = px(34);
+
+    const Color panelBg = Color{10, 18, 32, 238};
+    const Color border = Color{130, 150, 185, 235};
+    const Color white = Color{245, 247, 250, 255};
+    const Color muted = Color{175, 188, 210, 255};
+    const Color btn = Color{34, 66, 108, 255};
+    const Color btnHover = Color{49, 86, 136, 255};
+    const Color btnActive = Color{67, 108, 161, 255};
+
+    DrawRectangle(0, 0, screenWidth, screenHeight, Color{0, 0, 0, 0});
+
+    const int margin = panelMargin;
+    const int topH = topBarHeight;
+    Rectangle topBar{0.0f, 0.0f, static_cast<float>(screenWidth), static_cast<float>(topH)};
+    DrawRectangleRec(topBar, Color{26, 62, 115, 245});
+
+    DrawText("Information Menu (Raylib)", margin, px(12), titleFont, white);
+    Rectangle closeBtn{static_cast<float>(screenWidth - margin - px(24)), static_cast<float>(px(4)),
+                       static_cast<float>(px(32)), static_cast<float>(px(32))};
+    if (drawRayButton(closeBtn, "X", titleFont, Color{26, 62, 115, 245}, Color{36, 81, 148, 255},
+                      Color{60, 95, 155, 255}, white)) {
+        isOpen = false;
+        return;
+    }
+
+    const int contentY = topH + margin;
+    const int contentH = screenHeight - contentY - margin;
+    const int leftW = static_cast<int>(screenWidth * 0.32f);
+    const int rightX = margin + leftW + margin;
+    const int rightW = screenWidth - rightX - margin;
+    Rectangle leftPanel{static_cast<float>(margin), static_cast<float>(contentY),
+                        static_cast<float>(leftW), static_cast<float>(contentH)};
+    Rectangle rightPanel{static_cast<float>(rightX), static_cast<float>(contentY),
+                         static_cast<float>(rightW), static_cast<float>(contentH)};
+    DrawRectangleRec(leftPanel, panelBg);
+    DrawRectangleRec(rightPanel, panelBg);
+    DrawRectangleLinesEx(leftPanel, 2.0f, border);
+    DrawRectangleLinesEx(rightPanel, 2.0f, border);
+
+    int yLeft = contentY + sectionPad;
+    DrawText("Route and Navigation", margin + sectionPad, yLeft, sectionTitleFont, white);
+    yLeft += px(38);
+    DrawLine(margin + px(12), yLeft, margin + leftW - px(12), yLeft, Color{85, 98, 122, 255});
+    yLeft += sectionPad;
+
+    Rectangle prevBtn{static_cast<float>(margin + sectionPad), static_cast<float>(yLeft),
+                      static_cast<float>(px(36)), static_cast<float>(buttonHeight)};
+    Rectangle nextBtn{static_cast<float>(margin + leftW - sectionPad - px(36)), static_cast<float>(yLeft),
+                      static_cast<float>(px(36)), static_cast<float>(buttonHeight)};
+    Rectangle labelBox{static_cast<float>(margin + sectionPad + px(42)), static_cast<float>(yLeft),
+                       static_cast<float>(leftW - (sectionPad * 2 + px(84))), static_cast<float>(buttonHeight)};
+
+    if (drawRayButton(prevBtn, "<", px(20), btn, btnHover, btnActive, white)) {
+        selectedRouteSceneIdx = (selectedRouteSceneIdx - 1 + static_cast<int>(routeScenes.size())) %
+                                static_cast<int>(routeScenes.size());
+    }
+    if (drawRayButton(nextBtn, ">", px(20), btn, btnHover, btnActive, white)) {
+        selectedRouteSceneIdx = (selectedRouteSceneIdx + 1) % static_cast<int>(routeScenes.size());
+    }
+
+    DrawRectangleRec(labelBox, Color{16, 34, 58, 255});
+    DrawRectangleLinesEx(labelBox, 1.5f, Color{80, 118, 170, 220});
+    const std::string selectedLabel = routeScenes[selectedRouteSceneIdx].second;
+    DrawText(selectedLabel.c_str(), static_cast<int>(labelBox.x + px(10)), static_cast<int>(labelBox.y + px(8)), bodyFont, white);
+    yLeft += px(46);
+
+    Rectangle drawRouteBtn{static_cast<float>(margin + sectionPad), static_cast<float>(yLeft),
+                           static_cast<float>(px(140)), static_cast<float>(buttonHeight)};
+    Rectangle clearBtn{static_cast<float>(margin + sectionPad + px(150)), static_cast<float>(yLeft),
+                       static_cast<float>(px(110)), static_cast<float>(buttonHeight)};
+    if (drawRayButton(drawRouteBtn, "Draw Route", bodyFont, btn, btnHover, btnActive, white)) {
+        routeActive = true;
+        routeTargetScene = routeScenes[selectedRouteSceneIdx].first;
+        routeProgressPct = 0.0f;
+        routeTravelElapsed = 0.0f;
+        routeTravelCompleted = false;
+        routeLegStartDistance = 0.0f;
+        routeLegSceneId.clear();
+        routeLegNextSceneId.clear();
+        routeRefreshCooldown = 0.0f;
+    }
+    if (drawRayButton(clearBtn, "Clear", bodyFont, btn, btnHover, btnActive, white)) {
+        routeActive = false;
+        routeTargetScene.clear();
+        routeProgressPct = 0.0f;
+        routeTravelElapsed = 0.0f;
+        routeTravelCompleted = false;
+        routeLegStartDistance = 0.0f;
+        routeLegSceneId.clear();
+        routeLegNextSceneId.clear();
+        routeScenePlan.clear();
+        routePathPoints.clear();
+        routeNextHint.clear();
+    }
+    yLeft += px(52);
+
+    if (routeActive) {
+        DrawText(TextFormat("Destination: %s", sceneDisplayName(routeTargetScene).c_str()),
+                 margin + sectionPad, yLeft, bodyFont, white);
+        yLeft += px(24);
+        DrawText(routeNextHint.c_str(), margin + sectionPad, yLeft, bodyMutedFont, muted);
+        yLeft += px(28);
+        DrawText("Scene plan:", margin + sectionPad, yLeft, bodyFont, white);
+        yLeft += px(22);
+        for (const auto& sceneId : routeScenePlan) {
+            const std::string item = "- " + sceneDisplayName(sceneId);
+            DrawText(item.c_str(), margin + sectionPad + px(6), yLeft, bodyMutedFont, muted);
+            yLeft += px(20);
+            if (yLeft > contentY + contentH - px(24)) break;
+        }
+    }
+
+    int yRight = contentY + sectionPad;
+    DrawText("Academic Control", rightX + sectionPad, yRight, sectionTitleFont, white);
+    yRight += px(38);
+    DrawLine(rightX + px(12), yRight, rightX + rightW - px(12), yRight, Color{85, 98, 122, 255});
+    yRight += sectionPad;
+
+    DrawText(TextFormat("Current scene: %s", currentSceneName.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
+    DrawText(TextFormat("Hitboxes: %s", showHitboxes ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Triggers: %s", showTriggers ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Reduced mobility: %s", mobilityReduced ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Student profile: %s", studentType == StudentType::NEW_STUDENT ? "New" : "Regular"),
+             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
+
+    const std::string academicOrigin = sceneDisplayName(currentSceneName);
+    const std::string academicDestination = (routeActive && !routeTargetScene.empty())
+        ? sceneDisplayName(routeTargetScene)
+        : (state.endId[0] != '\0' ? sceneDisplayName(state.endId) : std::string("-"));
+    DrawText(TextFormat("Origin: %s", academicOrigin.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
+    DrawText(TextFormat("Destination: %s", academicDestination.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
+    DrawText(TextFormat("Resilience node: %s", state.nodeId), rightX + sectionPad, yRight, bodyFont, white); yRight += px(28);
+
+    if (state.hasTraversal) {
+        DrawText(TextFormat("Traversal visited nodes: %d", state.lastTraversal.nodes_visited), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+        DrawText(TextFormat("Traversal time: %lld us", state.lastTraversal.elapsed_us), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    }
+    if (state.hasPath) {
+        DrawText(TextFormat("Path found: %s", state.lastPath.found ? "yes" : "no"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+        DrawText(TextFormat("Path weight: %.2f", state.lastPath.total_weight), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    }
+    if (state.hasComparison) {
+        DrawText(TextFormat("DFS reaches destination: %s", state.lastComparison.dfs_reaches_destination ? "yes" : "no"),
+                 rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+        DrawText(TextFormat("BFS reaches destination: %s", state.lastComparison.bfs_reaches_destination ? "yes" : "no"),
+                 rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    }
+    DrawText(TextFormat("Global connectivity: %s", resilienceConnected ? "connected" : "fragmented"),
+             rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
+
+    DrawText("Route summary:", rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
+    const char* routeStatus = !routeActive ? "inactive" : (routeTravelCompleted ? "completed" : "in progress");
+    DrawText(TextFormat("Status: %s", routeStatus), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Progress: %.1f%%", routeProgressPct),
+             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    const std::string elapsedLabel = formatElapsedTime(routeTravelElapsed);
+    DrawText(TextFormat("Elapsed time: %s", elapsedLabel.c_str()),
+             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
+
+    if (!blockedNodes.empty()) {
+        DrawText("Blocked nodes:", rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
+        for (const auto& node : blockedNodes) {
+            DrawText(("- " + node).c_str(), rightX + sectionPad + px(6), yRight, bodyMutedFont, muted);
+            yRight += px(20);
+            if (yRight > contentY + contentH - px(24)) break;
+        }
+    }
+
+    if (yRight < contentY + contentH - px(50)) {
+        DrawText("campus.json validation", rightX + sectionPad, contentY + contentH - px(74), bodyFont, white);
+        DrawText(TextFormat("Nodes=%d Edges=%d", state.validation.nodeCount, state.validation.edgeCount),
+                 rightX + sectionPad, contentY + contentH - px(50), bodyMutedFont, muted);
+    }
+}
+
 int main(int argc, char* argv[]) {
     (void)argc;
 
     std::string path = findCampusJson(argc > 0 ? argv[0] : nullptr);
     if (path.empty()) {
-        std::cerr << "No se encontro campus.json. Coloque el archivo en el directorio de trabajo.\n";
+        std::cerr << "campus.json was not found. Place the file in the working directory.\n";
         return 1;
     }
 
-    const int screenWidth = 1280;
-    const int screenHeight = 720;
+    int screenWidth = 1280;
+    int screenHeight = 720;
     InitWindow(screenWidth, screenHeight, "EcoCampusNav (Raylib)");
+    const int monitor = GetCurrentMonitor();
+    screenWidth = GetMonitorWidth(monitor);
+    screenHeight = GetMonitorHeight(monitor);
+    SetWindowSize(screenWidth, screenHeight);
+    ToggleFullscreen();
     SetTargetFPS(60);
 
     rlImGuiSetup(true);
@@ -478,7 +723,7 @@ int main(int argc, char* argv[]) {
         const fs::path generatedGraphPath = fs::path(path).parent_path() / "campus.generated.json";
         dataManager.exportResolvedGraph(graph, generatedGraphPath.string());
     } catch (const std::exception& ex) {
-        std::cerr << "Error al cargar datos GIS: " << ex.what() << "\n";
+        std::cerr << "Error loading GIS data: " << ex.what() << "\n";
         return 1;
     }
 
@@ -504,10 +749,10 @@ int main(int argc, char* argv[]) {
                 allSceneSpawns[sc.name]    = loadSpawnsFromTmj(tmjPath);
                 allFloorTriggers[sc.name]  = loadFloorTriggersFromTmj(tmjPath);
             } catch (const std::exception& ex) {
-                std::cerr << "No se pudo leer " << sc.tmjPath << ": " << ex.what() << "\n";
+                std::cerr << "Could not read " << sc.tmjPath << ": " << ex.what() << "\n";
             }
         } else {
-            std::cerr << "No se encontro " << sc.tmjPath << "\n";
+            std::cerr << "Could not find " << sc.tmjPath << "\n";
         }
         sceneDataMap[sc.name] = std::move(sd);
     }
@@ -547,7 +792,7 @@ int main(int argc, char* argv[]) {
                 up.id,
                 up.scene,
                 up.targetScene,
-                up.requiresE ? "Acceso con E" : "Acceso automatico",
+                up.requiresE ? "Access with E" : "Automatic access",
                 up.triggerRect,
                 up.spawnPos,
                 SceneLinkType::Portal
@@ -560,19 +805,19 @@ int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     // Ordered list of floor scenes for menu display
     const std::vector<std::pair<std::string,std::string>> floorScenes = {
-        {"piso1","Piso 1"}, {"piso2","Piso 2"}, {"piso3","Piso 3"},
-        {"piso4","Piso 4"}, {"piso5","Piso 5"}
+        {"piso1","Floor 1"}, {"piso2","Floor 2"}, {"piso3","Floor 3"},
+        {"piso4","Floor 4"}, {"piso5","Floor 5"}
     };
     const std::vector<std::pair<std::string,std::string>> routeScenes = {
-        {"paradadebus", "Parada de Bus"},
-        {"exteriorcafeteria", "Exterior Cafeteria"},
-        {"interiorcafeteria", "Interior Cafeteria"},
-        {"biblio", "Biblio"},
-        {"piso1", "Piso 1"},
-        {"piso2", "Piso 2"},
-        {"piso3", "Piso 3"},
-        {"piso4", "Piso 4"},
-        {"piso5", "Piso 5"}
+        {"paradadebus", "Bus Stop"},
+        {"exteriorcafeteria", "Cafeteria Exterior"},
+        {"interiorcafeteria", "Cafeteria Interior"},
+        {"biblio", "Library"},
+        {"piso1", "Floor 1"},
+        {"piso2", "Floor 2"},
+        {"piso3", "Floor 3"},
+        {"piso4", "Floor 4"},
+        {"piso5", "Floor 5"}
     };
 
     auto canonicalSceneId = [](std::string sceneName) -> std::string {
@@ -650,10 +895,10 @@ int main(int argc, char* argv[]) {
                 fe.floors.push_back({dstScene, spawnPosIt->second, dstLabel});
                 if (dstScene == sceneName) continue;
 
-                std::string accessLabel = "Acceso";
-                if (linkType == SceneLinkType::Elevator) accessLabel = "Elevador";
-                if (linkType == SceneLinkType::StairLeft) accessLabel = "Escalera izquierda";
-                if (linkType == SceneLinkType::StairRight) accessLabel = "Escalera derecha";
+                std::string accessLabel = "Access";
+                if (linkType == SceneLinkType::Elevator) accessLabel = "Elevator";
+                if (linkType == SceneLinkType::StairLeft) accessLabel = "Left stair";
+                if (linkType == SceneLinkType::StairRight) accessLabel = "Right stair";
 
                 sceneLinks.push_back({
                     fe.id + "_" + dstScene,
@@ -681,7 +926,7 @@ int main(int argc, char* argv[]) {
             mapData.texture = LoadTexture(pngPath.c_str());
             mapData.hasTexture = mapData.texture.id != 0;
         } else {
-            std::cerr << "No se encontro " << initConfig.pngPath << "\n";
+            std::cerr << "Could not find " << initConfig.pngPath << "\n";
         }
         const auto sdIt = sceneDataMap.find(initialSceneName);
         if (sdIt != sceneDataMap.end() && sdIt->second.isValid) {
@@ -746,6 +991,12 @@ int main(int argc, char* argv[]) {
     int selectedRouteSceneIdx = 0;
     bool routeActive = false;
     std::string routeTargetScene;
+    float routeProgressPct = 0.0f;
+    float routeTravelElapsed = 0.0f;
+    bool routeTravelCompleted = false;
+    float routeLegStartDistance = 0.0f;
+    std::string routeLegSceneId;
+    std::string routeLegNextSceneId;
     std::vector<std::string> routeScenePlan;
     std::vector<Vector2> routePathPoints;
     std::string routeNextHint;
@@ -753,20 +1004,27 @@ int main(int argc, char* argv[]) {
     bool routeMobilityReduced = scenario_manager.isMobilityReduced();
     float routeRefreshCooldown = 0.0f;
     Vector2 routeAnchorPos = playerPos;
+    bool infoMenuOpen = false;
 
     while (!WindowShouldClose()) {
         const float dt = GetFrameTime();
+        if (IsKeyPressed(KEY_M)) {
+            infoMenuOpen = !infoMenuOpen;
+        }
+
         const float wheel = GetMouseWheelMove();
-        if (wheel != 0.0f) {
+        if (wheel != 0.0f && !infoMenuOpen) {
             camera.zoom = std::clamp(camera.zoom + wheel * 0.15f, minZoom, maxZoom);
         }
 
         float moveX = 0.0f;
         float moveY = 0.0f;
-        if (IsKeyDown(KEY_W)) moveY -= 1.0f;
-        if (IsKeyDown(KEY_S)) moveY += 1.0f;
-        if (IsKeyDown(KEY_A)) moveX -= 1.0f;
-        if (IsKeyDown(KEY_D)) moveX += 1.0f;
+        if (!infoMenuOpen) {
+            if (IsKeyDown(KEY_W)) moveY -= 1.0f;
+            if (IsKeyDown(KEY_S)) moveY += 1.0f;
+            if (IsKeyDown(KEY_A)) moveX -= 1.0f;
+            if (IsKeyDown(KEY_D)) moveX += 1.0f;
+        }
 
         if (moveX != 0.0f || moveY != 0.0f) {
             const float len = std::sqrt(moveX * moveX + moveY * moveY);
@@ -776,16 +1034,17 @@ int main(int argc, char* argv[]) {
 
         // Orden real de bloques en este spritesheet (4 direcciones):
         // 0=right, 1=up, 2=left, 3=down
-        if (IsKeyDown(KEY_W)) {
+        if (!infoMenuOpen && IsKeyDown(KEY_W)) {
             playerAnim.direction = 1; // up
-        } else if (IsKeyDown(KEY_S)) {
+        } else if (!infoMenuOpen && IsKeyDown(KEY_S)) {
             playerAnim.direction = 3; // down
-        } else if (IsKeyDown(KEY_A)) {
+        } else if (!infoMenuOpen && IsKeyDown(KEY_A)) {
             playerAnim.direction = 2; // left
-        } else if (IsKeyDown(KEY_D)) {
+        } else if (!infoMenuOpen && IsKeyDown(KEY_D)) {
             playerAnim.direction = 0; // right
         }
-        const bool sprinting = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+        const bool sprinting = !infoMenuOpen &&
+            (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
         const float currentSpeed = playerSpeed * (sprinting ? sprintMultiplier : 1.0f);
 
         Vector2 candidate = playerPos;
@@ -804,6 +1063,9 @@ int main(int argc, char* argv[]) {
         }
         if (!intersectsAny(playerColliderAt(candidate), mapData.hitboxes)) {
             playerPos.y = candidate.y;
+        }
+        if (routeActive && !routeTravelCompleted) {
+            routeTravelElapsed += dt;
         }
         camera.target = playerPos;
         clampCameraTarget(camera, mapData, screenWidth, screenHeight);
@@ -832,14 +1094,29 @@ int main(int argc, char* argv[]) {
                     currentSceneId, routeTargetScene, routeMobilityReduced);
                 tabState.hasComparison = true;
 
-                if (!routedPath.found || routeScenePlan.empty()) {
-                    routeNextHint = "No hay conexion disponible";
-                } else if (currentSceneId == routeTargetScene) {
+                const bool atDestinationScene = currentSceneId == routeTargetScene;
+                if (atDestinationScene) {
                     const Vector2 goal = sceneTargetPoint(routeTargetScene);
+                    const float currentToGoal = distanceBetween(playerPos, goal);
+                    if (routeLegSceneId != currentSceneId || routeLegNextSceneId != routeTargetScene ||
+                        routeLegStartDistance <= 0.0f) {
+                        routeLegSceneId = currentSceneId;
+                        routeLegNextSceneId = routeTargetScene;
+                        routeLegStartDistance = std::max(currentToGoal, 1.0f);
+                    }
+
+                    const float localProgress = std::clamp(1.0f - (currentToGoal / routeLegStartDistance), 0.0f, 1.0f);
+                    routeProgressPct = std::max(routeProgressPct, localProgress * 100.0f);
                     routePathPoints = buildWalkablePath(mapData, playerPos, goal);
-                    routeNextHint = distanceBetween(playerPos, goal) <= 24.0f
-                        ? "Destino alcanzado"
-                        : "Sigue la ruta hasta el destino";
+                    routeNextHint = currentToGoal <= 24.0f
+                        ? "Destination reached"
+                        : "Follow the route to the destination";
+                    if (currentToGoal <= 24.0f) {
+                        routeTravelCompleted = true;
+                        routeProgressPct = 100.0f;
+                    }
+                } else if (!routedPath.found || routeScenePlan.empty()) {
+                    routeNextHint = "No available connection";
                 } else {
                     const auto currentIt = std::find(routeScenePlan.begin(), routeScenePlan.end(), currentSceneId);
                     const std::string nextScene = (currentIt != routeScenePlan.end() &&
@@ -869,15 +1146,40 @@ int main(int argc, char* argv[]) {
 
                     routePathPoints = std::move(bestPath);
                     routeNextHint = routePathPoints.empty()
-                        ? "No se pudo trazar la ruta local"
-                        : "Dirigete a " + bestLabel + " para llegar a " +
+                        ? "Could not trace local route"
+                        : "Head to " + bestLabel + " to reach " +
                           sceneDisplayName(nextScene);
+
+                    // Route progress: completed scene-legs + local approach on current leg.
+                    const int totalLegs = std::max(1, static_cast<int>(routeScenePlan.size()) - 1);
+                    int completedLegs = 0;
+                    if (currentIt != routeScenePlan.end()) {
+                        completedLegs = std::max(0, static_cast<int>(std::distance(routeScenePlan.begin(), currentIt)));
+                    }
+
+                    float localProgress = 0.0f;
+                    if (!routePathPoints.empty()) {
+                        const float currentToGoal = distanceBetween(playerPos, routePathPoints.back());
+                        if (routeLegSceneId != currentSceneId || routeLegNextSceneId != nextScene ||
+                            routeLegStartDistance <= 0.0f) {
+                            routeLegSceneId = currentSceneId;
+                            routeLegNextSceneId = nextScene;
+                            routeLegStartDistance = std::max(currentToGoal, 1.0f);
+                        }
+                        localProgress = std::clamp(1.0f - (currentToGoal / routeLegStartDistance), 0.0f, 1.0f);
+                    }
+
+                    const float overallProgress =
+                        ((static_cast<float>(completedLegs) + localProgress) / static_cast<float>(totalLegs)) * 100.0f;
+                    routeProgressPct = std::max(routeProgressPct, std::clamp(overallProgress, 0.0f, 99.9f));
                 }
             }
         }
 
         // --- Scene transition (portal & elevator detection + fade state machine) ---
-        transitions.update(playerColliderAt(playerPos), currentSceneName, dt);
+        if (!infoMenuOpen) {
+            transitions.update(playerColliderAt(playerPos), currentSceneName, dt);
+        }
 
         // Perform scene swap at peak blackness (alpha == 1.0)
         if (transitions.needsSceneSwap()) {
@@ -986,7 +1288,7 @@ int main(int argc, char* argv[]) {
         // -----------------------------------------------------------------------
         // Waze-style minimap (bottom-right corner, crops scene texture by radius)
         // -----------------------------------------------------------------------
-        if (mapData.hasTexture) {
+        if (mapData.hasTexture && !infoMenuOpen) {
             constexpr int   kMapW        = 200;
             constexpr int   kMapH        = 150;
             constexpr int   kMapPad      = 12;
@@ -1059,9 +1361,9 @@ int main(int argc, char* argv[]) {
 
             // Minimap border and label
             DrawRectangleLines(mapX - 2, mapY - 2, kMapW + 4, kMapH + 4, Color{80,160,255,200});
-            DrawText("Mapa", mapX + 4, mapY + 4, 12, Color{180,220,255,220});
+            DrawText("Map", mapX + 4, mapY + 4, 12, Color{180,220,255,220});
             if (routeActive) {
-                DrawText("Ruta activa", mapX + 52, mapY + 4, 12, Color{255,220,120,220});
+                DrawText("Route active", mapX + 52, mapY + 4, 12, Color{255,220,120,220});
             }
         }
 
@@ -1089,19 +1391,42 @@ int main(int argc, char* argv[]) {
         const int coordY = coordPadding;
         DrawRectangle(coordX - 8, coordY - 6, coordWidth + 16, coordFontSize + 12, Color{0, 0, 0, 140});
         DrawText(coordText, coordX, coordY, coordFontSize, RAYWHITE);
+        DrawText("M: Menu", 16, 12, 20, Color{220, 230, 255, 220});
+
+        drawRaylibInfoMenu(
+            infoMenuOpen,
+            screenWidth,
+            screenHeight,
+            selectedRouteSceneIdx,
+            routeActive,
+            routeTargetScene,
+            routeProgressPct,
+            routeTravelElapsed,
+            routeTravelCompleted,
+            routeLegStartDistance,
+            routeLegSceneId,
+            routeLegNextSceneId,
+            routeScenePlan,
+            routePathPoints,
+            routeNextHint,
+            routeRefreshCooldown,
+            routeScenes,
+            sceneDisplayName,
+            tabState,
+            currentSceneName,
+            showHitboxes,
+            showTriggers,
+            scenario_manager.isMobilityReduced(),
+            scenario_manager.getStudentType(),
+            resilience_service.getBlockedNodes(),
+            resilience_service.isStillConnected());
 
         rlImGuiBegin();
 
         // Floor-elevator menu (shown when player presses E near an elevator)
-        transitions.drawFloorMenu();
-
-        renderMinimapRouteWindow(screenWidth, screenHeight,
-                                 selectedRouteSceneIdx, routeActive, routeTargetScene,
-                                 routeScenePlan, routePathPoints, routeNextHint,
-                                 routeRefreshCooldown, routeScenes, sceneDisplayName);
-        renderAcademicControlPanel(tabState, nav_service, scenario_manager,
-                                   complexity_analyzer, resilience_service, graph,
-                                   currentSceneName, showHitboxes, showTriggers);
+        if (!infoMenuOpen) {
+            transitions.drawFloorMenu();
+        }
         rlImGuiEnd();
 
         EndDrawing();

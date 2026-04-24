@@ -77,7 +77,7 @@ void TransitionService::update(const Rectangle& playerCollider,
 
         if (portal.requiresE) {
             promptVisible_ = true;
-            promptHint_    = "Presiona E";
+            promptHint_    = "Press E";
             if (IsKeyPressed(KEY_E)) {
                 beginFadeIn(targetScene, spawnPos);
             }
@@ -96,7 +96,7 @@ void TransitionService::update(const Rectangle& playerCollider,
 
         if (portal.requiresE) {
             promptVisible_ = true;
-            promptHint_    = "Presiona E";
+            promptHint_    = "Press E";
             if (IsKeyPressed(KEY_E)) {
                 beginFadeIn(portal.targetScene, portal.spawnPos);
             }
@@ -115,7 +115,7 @@ void TransitionService::update(const Rectangle& playerCollider,
         if (!CheckCollisionRecs(playerCollider, elev.triggerRect)) continue;
 
         promptVisible_ = true;
-        promptHint_    = "Presiona E para cambiar de piso";
+        promptHint_    = "Press E to change floor";
         if (IsKeyPressed(KEY_E)) {
             showFloorMenu_     = true;
             activeElevatorIdx_ = i;
@@ -226,8 +226,8 @@ void TransitionService::drawFloorMenu() {
         static_cast<float>(panelH)
     }, 2.0f, Color{90, 150, 255, 230});
 
-    DrawText("Selecciona piso", panelX + 16, panelY + 12, 24, RAYWHITE);
-    DrawText("Flechas / 1-9 y Enter (Esc cancela)", panelX + 16, panelY + 34, 14, Color{190, 210, 230, 255});
+    DrawText("Select floor", panelX + 16, panelY + 12, 24, RAYWHITE);
+    DrawText("Arrows / 1-9 and Enter (Esc cancels)", panelX + 16, panelY + 34, 14, Color{190, 210, 230, 255});
 
     for (int i = 0; i < floorCount; ++i) {
         const int rowY = panelY + panelHeaderH + i * rowH;
@@ -242,8 +242,8 @@ void TransitionService::drawFloorMenu() {
         DrawText(text.c_str(), panelX + 24, rowY + 7, 20, fg);
     }
 
-    DrawText("Enter/E: confirmar", panelX + 16, panelY + panelH - 34, 16, Color{175, 235, 180, 255});
-    DrawText("Esc: cancelar", panelX + panelW - 120, panelY + panelH - 34, 16, Color{240, 190, 190, 255});
+    DrawText("Enter/E: confirm", panelX + 16, panelY + panelH - 34, 16, Color{175, 235, 180, 255});
+    DrawText("Esc: cancel", panelX + panelW - 110, panelY + panelH - 34, 16, Color{240, 190, 190, 255});
 }
 
 bool TransitionService::isCollidingWithSceneTrigger(const Rectangle& playerCollider,

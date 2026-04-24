@@ -65,3 +65,26 @@ void renderAcademicControlPanel(
     const std::string& currentSceneName,
     bool& showHitboxes,
     bool& showTriggers);
+
+void renderFullScreenInfoMenu(
+    bool& isOpen,
+    int screenWidth,
+    int screenHeight,
+    int& selectedRouteSceneIdx,
+    bool& routeActive,
+    std::string& routeTargetScene,
+    std::vector<std::string>& routeScenePlan,
+    std::vector<Vector2>& routePathPoints,
+    std::string& routeNextHint,
+    float& routeRefreshCooldown,
+    const std::vector<std::pair<std::string, std::string>>& routeScenes,
+    const std::function<std::string(const std::string&)>& sceneDisplayName,
+    TabManagerState& state,
+    NavigationService& navService,
+    ScenarioManager& scenarioManager,
+    ComplexityAnalyzer& complexityAnalyzer,
+    ResilienceService& resilienceService,
+    const CampusGraph& graph,
+    const std::string& currentSceneName,
+    bool& showHitboxes,
+    bool& showTriggers);
