@@ -30,7 +30,11 @@
 #include "services/SpriteAnimationService.h"
 #include "services/RuntimeTextService.h"
 #include "services/MapRenderService.h"
+#include "services/DestinationCatalog.h"
+#include "services/RuntimeBlockerService.h"
 #include "core/runtime/SceneRuntimeTypes.h"
+#include "runtime/RuntimeInputManager.h"
+#include "runtime/RuntimeNavigationManager.h"
 #include "ui/TabManager.h"
 
 namespace fs = std::filesystem;
@@ -113,6 +117,14 @@ static Vector2 playerFrontAnchor(const Vector2& playerPos, int direction) {
         case 0:
         default: return Vector2{playerPos.x, playerPos.y + kOffset};       // down
     }
+}
+
+static void refreshSceneHitboxes(MapRenderData& mapData,
+                                 const SceneData& sceneData,
+                                 const std::vector<Rectangle>& runtimeBlockers) {
+    mapData.hitboxes = sceneData.hitboxes;
+    mapData.hitboxes.insert(mapData.hitboxes.end(), runtimeBlockers.begin(), runtimeBlockers.end());
+    mapData.interestZones = sceneData.interestZones;
 }
 
 static PathResult mergeProfiledSegments(const std::vector<PathResult>& segments) {
@@ -256,7 +268,7 @@ static void drawCurrentSceneNavigationOverlay(
     const CampusGraph& graph,
     const std::string& currentSceneName,
     const std::vector<SceneLink>& sceneLinks,
-    const std::vector<InterestZone>& interestZones,
+    const DestinationCatalog& destinationCatalog,
     const std::vector<std::string>& activePathNodes,
     const std::vector<std::string>& blockedNodes,
     bool mobilityReduced) {
@@ -304,28 +316,31 @@ static void drawCurrentSceneNavigationOverlay(
                  12, Color{240, 245, 255, 220});
     }
 
-    for (const auto& zone : interestZones) {
-        if (zone.rects.empty()) continue;
-
-        Vector2 poiPos{0.0f, 0.0f};
-        for (const auto& rect : zone.rects) {
-            poiPos.x += rect.x + rect.width * 0.5f;
-            poiPos.y += rect.y + rect.height * 0.5f;
+    for (const auto& poiEdge : destinationCatalog.poiEdgesForScene(currentSceneId)) {
+        const Vector2 poiPos = poiEdge.worldPos;
+        const bool onActivePath = pathContainsDirectedStep(activePathNodes, currentSceneId, poiEdge.toNodeId);
+        bool edgeAllowed = true;
+        for (const auto& edge : graph.edgesFrom(currentSceneId)) {
+            if (edge.to == poiEdge.toNodeId) {
+                edgeAllowed = isOverlayEdgeAllowed(edge, mobilityReduced);
+                break;
+            }
         }
-        poiPos.x /= static_cast<float>(zone.rects.size());
-        poiPos.y /= static_cast<float>(zone.rects.size());
 
-        DrawLineEx(scenePos, poiPos, 1.5f, Color{255, 190, 60, 145});
-        DrawCircleV(poiPos, 7.0f, Color{255, 180, 50, 235});
+        const Color edgeColor = onActivePath
+            ? Color{255, 215, 70, 255}
+            : (edgeAllowed ? Color{255, 190, 60, 190} : Color{220, 90, 90, 220});
+        DrawLineEx(scenePos, poiPos, onActivePath ? 3.0f : 1.5f, edgeColor);
+        DrawCircleV(poiPos, 7.0f, edgeColor);
         DrawCircleLines(static_cast<int>(poiPos.x), static_cast<int>(poiPos.y), 7.0f,
                         Color{255, 250, 210, 240});
 
-        // Keep POI labels close to each zone title area (top-left of its first rect),
-        // so they don't drift to the center on large floor zones.
-        const Rectangle& titleRect = zone.rects.front();
+        const Rectangle titleRect = poiEdge.collisionRects.empty()
+            ? Rectangle{poiPos.x, poiPos.y, 0.0f, 0.0f}
+            : poiEdge.collisionRects.front();
         const int poiLabelX = static_cast<int>(titleRect.x) + 6;
         const int poiLabelY = static_cast<int>(titleRect.y) + 24;
-        DrawText(zone.name.c_str(), poiLabelX, poiLabelY, 12, Color{255, 228, 150, 245});
+        DrawText(poiEdge.label.c_str(), poiLabelX, poiLabelY, 12, Color{255, 228, 150, 245});
     }
 
     const Color nodeColor = nodeBlocked ? Color{230, 90, 90, 240} : Color{85, 160, 255, 240};
@@ -729,15 +744,17 @@ static void drawRaylibInfoMenu(
     int& dfsPage,
     int& bfsPage,
     bool& showNavigationGraph,
-    const TabManagerState& state,
+    TabManagerState& state,
     const std::string& currentSceneName,
     bool showHitboxes,
     bool showTriggers,
     bool showInterestZones,
-    bool mobilityReduced,
-    StudentType studentType,
-    const std::vector<std::string>& blockedNodes,
-    bool resilienceConnected) {
+    ScenarioManager& scenarioManager,
+    RuntimeBlockerService& runtimeBlockerService,
+    const DestinationCatalog& destinationCatalog,
+    int& selectedBlockedNodeIdx,
+    int& selectedBlockedEdgeIdx,
+    ResilienceService& resilienceService) {
     if (!isOpen) return;
 
     const float uiScale = std::clamp(static_cast<float>(screenHeight) / 900.0f, 1.0f, 1.45f);
@@ -761,6 +778,7 @@ static void drawRaylibInfoMenu(
     const Color btn = Color{34, 66, 108, 255};
     const Color btnHover = Color{49, 86, 136, 255};
     const Color btnActive = Color{67, 108, 161, 255};
+    const auto blockedNodes = resilienceService.getBlockedNodes();
 
     DrawRectangle(0, 0, screenWidth, screenHeight, Color{0, 0, 0, 0});
 
@@ -805,17 +823,21 @@ static void drawRaylibInfoMenu(
     Rectangle labelBox{static_cast<float>(margin + sectionPad + px(42)), static_cast<float>(yLeft),
                        static_cast<float>(leftW - (sectionPad * 2 + px(84))), static_cast<float>(buttonHeight)};
 
-    if (drawRayButton(prevBtn, "<", px(20), btn, btnHover, btnActive, white)) {
-        selectedRouteSceneIdx = (selectedRouteSceneIdx - 1 + static_cast<int>(routeScenes.size())) %
-                                static_cast<int>(routeScenes.size());
-    }
-    if (drawRayButton(nextBtn, ">", px(20), btn, btnHover, btnActive, white)) {
-        selectedRouteSceneIdx = (selectedRouteSceneIdx + 1) % static_cast<int>(routeScenes.size());
+    std::string selectedLabel = "(sin destinos)";
+    if (!routeScenes.empty()) {
+        selectedRouteSceneIdx = std::clamp(selectedRouteSceneIdx, 0, static_cast<int>(routeScenes.size()) - 1);
+        if (drawRayButton(prevBtn, "<", px(20), btn, btnHover, btnActive, white)) {
+            selectedRouteSceneIdx = (selectedRouteSceneIdx - 1 + static_cast<int>(routeScenes.size())) %
+                                    static_cast<int>(routeScenes.size());
+        }
+        if (drawRayButton(nextBtn, ">", px(20), btn, btnHover, btnActive, white)) {
+            selectedRouteSceneIdx = (selectedRouteSceneIdx + 1) % static_cast<int>(routeScenes.size());
+        }
+        selectedLabel = routeScenes[selectedRouteSceneIdx].second;
     }
 
     DrawRectangleRec(labelBox, Color{16, 34, 58, 255});
     DrawRectangleLinesEx(labelBox, 1.5f, Color{80, 118, 170, 220});
-    const std::string selectedLabel = routeScenes[selectedRouteSceneIdx].second;
     DrawText(selectedLabel.c_str(), static_cast<int>(labelBox.x + px(10)), static_cast<int>(labelBox.y + px(8)), bodyFont, white);
     yLeft += px(46);
 
@@ -823,7 +845,7 @@ static void drawRaylibInfoMenu(
                            static_cast<float>(px(140)), static_cast<float>(buttonHeight)};
     Rectangle clearBtn{static_cast<float>(margin + sectionPad + px(150)), static_cast<float>(yLeft),
                        static_cast<float>(px(110)), static_cast<float>(buttonHeight)};
-    if (drawRayButton(drawRouteBtn, "Draw Route", bodyFont, btn, btnHover, btnActive, white)) {
+    if (!routeScenes.empty() && drawRayButton(drawRouteBtn, "Draw Route", bodyFont, btn, btnHover, btnActive, white)) {
         routeActive = true;
         routeTargetScene = routeScenes[selectedRouteSceneIdx].first;
         routeProgressPct = 0.0f;
@@ -846,11 +868,13 @@ static void drawRaylibInfoMenu(
         routeScenePlan.clear();
         routePathPoints.clear();
         routeNextHint.clear();
+        state.lastPath = {};
+        state.hasPath = false;
     }
     yLeft += px(52);
 
     if (routeActive) {
-        DrawText(TextFormat("Destination: %s", sceneDisplayName(routeTargetScene).c_str()),
+        DrawText(TextFormat("Destination: %s", destinationCatalog.displayLabel(routeTargetScene).c_str()),
                  margin + sectionPad, yLeft, bodyFont, white);
         yLeft += px(24);
         DrawText(routeNextHint.c_str(), margin + sectionPad, yLeft, bodyMutedFont, muted);
@@ -875,11 +899,11 @@ static void drawRaylibInfoMenu(
     DrawText(TextFormat("Hitboxes: %s", showHitboxes ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     DrawText(TextFormat("Triggers: %s", showTriggers ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     DrawText(TextFormat("Interest zones: %s", showInterestZones ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Reduced mobility: %s", mobilityReduced ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Reduced mobility: %s", scenarioManager.isMobilityReduced() ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     DrawText(TextFormat("Student profile: %s",
-                        studentType == StudentType::NEW_STUDENT
+                        scenarioManager.getStudentType() == StudentType::NEW_STUDENT
                             ? "New"
-                            : (studentType == StudentType::DISABLED_STUDENT ? "Disabled" : "Veteran")),
+                            : (scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT ? "Disabled" : "Veteran")),
              rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
 
     Rectangle graphToggleBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
@@ -892,9 +916,104 @@ static void drawRaylibInfoMenu(
     }
     yRight += px(46);
 
+    Rectangle newProfileBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+                            static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
+    Rectangle veteranProfileBtn{static_cast<float>(rightX + sectionPad + px(126)), static_cast<float>(yRight),
+                                static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
+    Rectangle disabledProfileBtn{static_cast<float>(rightX + sectionPad + px(252)), static_cast<float>(yRight),
+                                 static_cast<float>(px(152)), static_cast<float>(buttonHeight)};
+    if (drawRayButton(newProfileBtn, "Estudiante Nuevo", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        scenarioManager.setStudentType(StudentType::NEW_STUDENT);
+        routeRefreshCooldown = 0.0f;
+    }
+    if (drawRayButton(veteranProfileBtn, "Estudiante Veterano", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        scenarioManager.setStudentType(StudentType::VETERAN_STUDENT);
+        routeRefreshCooldown = 0.0f;
+    }
+    if (drawRayButton(disabledProfileBtn, "Movilidad Reducida", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        scenarioManager.setStudentType(StudentType::DISABLED_STUDENT);
+        routeRefreshCooldown = 0.0f;
+    }
+    yRight += px(46);
+
+    const auto& blockNodeOptions = runtimeBlockerService.nodeOptions();
+    if (!blockNodeOptions.empty()) {
+        selectedBlockedNodeIdx = std::clamp(selectedBlockedNodeIdx, 0, static_cast<int>(blockNodeOptions.size()) - 1);
+        Rectangle prevNodeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+                              static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
+        Rectangle nextNodeBtn{static_cast<float>(rightX + sectionPad + px(310)), static_cast<float>(yRight),
+                              static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
+        Rectangle nodeLabelBox{static_cast<float>(rightX + sectionPad + px(36)), static_cast<float>(yRight),
+                               static_cast<float>(px(268)), static_cast<float>(buttonHeight)};
+        if (drawRayButton(prevNodeBtn, "<", bodyFont, btn, btnHover, btnActive, white)) {
+            selectedBlockedNodeIdx = (selectedBlockedNodeIdx - 1 + static_cast<int>(blockNodeOptions.size())) %
+                                     static_cast<int>(blockNodeOptions.size());
+        }
+        if (drawRayButton(nextNodeBtn, ">", bodyFont, btn, btnHover, btnActive, white)) {
+            selectedBlockedNodeIdx = (selectedBlockedNodeIdx + 1) % static_cast<int>(blockNodeOptions.size());
+        }
+        DrawRectangleRec(nodeLabelBox, Color{16, 34, 58, 255});
+        DrawRectangleLinesEx(nodeLabelBox, 1.5f, Color{80, 118, 170, 220});
+        DrawText(blockNodeOptions[selectedBlockedNodeIdx].label.c_str(),
+                 static_cast<int>(nodeLabelBox.x + px(8)),
+                 static_cast<int>(nodeLabelBox.y + px(8)),
+                 bodyMutedFont, white);
+        yRight += px(42);
+    }
+
+    const auto& blockEdgeOptions = runtimeBlockerService.edgeOptions();
+    if (!blockEdgeOptions.empty()) {
+        selectedBlockedEdgeIdx = std::clamp(selectedBlockedEdgeIdx, 0, static_cast<int>(blockEdgeOptions.size()) - 1);
+        Rectangle prevEdgeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+                              static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
+        Rectangle nextEdgeBtn{static_cast<float>(rightX + sectionPad + px(310)), static_cast<float>(yRight),
+                              static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
+        Rectangle edgeLabelBox{static_cast<float>(rightX + sectionPad + px(36)), static_cast<float>(yRight),
+                               static_cast<float>(px(268)), static_cast<float>(buttonHeight)};
+        if (drawRayButton(prevEdgeBtn, "<", bodyFont, btn, btnHover, btnActive, white)) {
+            selectedBlockedEdgeIdx = (selectedBlockedEdgeIdx - 1 + static_cast<int>(blockEdgeOptions.size())) %
+                                     static_cast<int>(blockEdgeOptions.size());
+        }
+        if (drawRayButton(nextEdgeBtn, ">", bodyFont, btn, btnHover, btnActive, white)) {
+            selectedBlockedEdgeIdx = (selectedBlockedEdgeIdx + 1) % static_cast<int>(blockEdgeOptions.size());
+        }
+        DrawRectangleRec(edgeLabelBox, Color{16, 34, 58, 255});
+        DrawRectangleLinesEx(edgeLabelBox, 1.5f, Color{80, 118, 170, 220});
+        DrawText(blockEdgeOptions[selectedBlockedEdgeIdx].label.c_str(),
+                 static_cast<int>(edgeLabelBox.x + px(8)),
+                 static_cast<int>(edgeLabelBox.y + px(8)),
+                 bodyMutedFont, white);
+        yRight += px(42);
+    }
+
+    Rectangle blockNodeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+                           static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
+    Rectangle blockEdgeBtn{static_cast<float>(rightX + sectionPad + px(126)), static_cast<float>(yRight),
+                           static_cast<float>(px(142)), static_cast<float>(buttonHeight)};
+    Rectangle clearBlocksBtn{static_cast<float>(rightX + sectionPad + px(276)), static_cast<float>(yRight),
+                             static_cast<float>(px(128)), static_cast<float>(buttonHeight)};
+    if (!blockNodeOptions.empty() &&
+        drawRayButton(blockNodeBtn, "Bloquear Nodo", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        runtimeBlockerService.blockNode(blockNodeOptions[selectedBlockedNodeIdx], resilienceService);
+        state.lastAction = "BlockNode";
+        routeRefreshCooldown = 0.0f;
+    }
+    if (!blockEdgeOptions.empty() &&
+        drawRayButton(blockEdgeBtn, "Bloquear Conexion", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        runtimeBlockerService.blockEdge(blockEdgeOptions[selectedBlockedEdgeIdx], resilienceService);
+        state.lastAction = "BlockEdge";
+        routeRefreshCooldown = 0.0f;
+    }
+    if (drawRayButton(clearBlocksBtn, "Limpiar Bloqueos", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        runtimeBlockerService.clearAll(resilienceService);
+        state.lastAction = "UnblockAll";
+        routeRefreshCooldown = 0.0f;
+    }
+    yRight += px(50);
+
     const std::string academicOrigin = sceneDisplayName(currentSceneName);
     const std::string academicDestination = (routeActive && !routeTargetScene.empty())
-        ? sceneDisplayName(routeTargetScene)
+        ? destinationCatalog.displayLabel(routeTargetScene)
         : (state.endId[0] != '\0' ? sceneDisplayName(state.endId) : std::string("-"));
     DrawText(TextFormat("Origin: %s", academicOrigin.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
     DrawText(TextFormat("Destination: %s", academicDestination.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
@@ -914,7 +1033,7 @@ static void drawRaylibInfoMenu(
         DrawText(TextFormat("BFS reaches destination: %s", state.lastComparison.bfs_reaches_destination ? "yes" : "no"),
                  rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     }
-    DrawText(TextFormat("Global connectivity: %s", resilienceConnected ? "connected" : "fragmented"),
+    DrawText(TextFormat("Global connectivity: %s", resilienceService.isStillConnected() ? "connected" : "fragmented"),
              rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
 
     DrawText("Route summary:", rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
@@ -1058,6 +1177,7 @@ int main(int argc, char* argv[]) {
     ScenarioManager scenario_manager;
     ComplexityAnalyzer complexity_analyzer(graph);
     ResilienceService resilience_service(graph);
+    DestinationCatalog destinationCatalog;
 
     // Pre-load hitboxes for all scenes into sceneDataMap
     std::unordered_map<std::string, SceneData> sceneDataMap;
@@ -1088,6 +1208,16 @@ int main(int argc, char* argv[]) {
         }
         sceneDataMap[sc.name] = std::move(sd);
     }
+
+    std::string generatedGraphRuntimePath = (fs::path(path).parent_path() / "campus.generated.json").string();
+    if (!fs::exists(generatedGraphRuntimePath)) {
+        const fs::path alternateGeneratedPath = fs::path(path).parent_path() / "campus_generated.json";
+        if (fs::exists(alternateGeneratedPath)) {
+            generatedGraphRuntimePath = alternateGeneratedPath.string();
+        }
+    }
+    destinationCatalog.loadFromGeneratedJson(generatedGraphRuntimePath, sceneDataMap);
+    scenario_manager.setReferenceWaypoints(destinationCatalog.preferredReferenceWaypoints(graph));
 
     // -----------------------------------------------------------------------
     // Transitions: load portals from TMJ, resolve spawn positions, register
@@ -1140,17 +1270,6 @@ int main(int argc, char* argv[]) {
         {"piso1","Floor 1"}, {"piso2","Floor 2"}, {"piso3","Floor 3"},
         {"piso4","Floor 4"}, {"piso5","Floor 5"}
     };
-    const std::vector<std::pair<std::string,std::string>> routeScenes = {
-        {"paradadebus", "Bus Stop"},
-        {"exteriorcafeteria", "Cafeteria Exterior"},
-        {"interiorcafeteria", "Cafeteria Interior"},
-        {"biblio", "Library"},
-        {"piso1", "Floor 1"},
-        {"piso2", "Floor 2"},
-        {"piso3", "Floor 3"},
-        {"piso4", "Floor 4"},
-        {"piso5", "Floor 5"}
-    };
 
     auto canonicalSceneId = [](std::string sceneName) -> std::string {
         std::transform(sceneName.begin(), sceneName.end(), sceneName.begin(), [](unsigned char c) {
@@ -1169,8 +1288,8 @@ int main(int argc, char* argv[]) {
 
     auto sceneDisplayName = [&](const std::string& sceneName) -> std::string {
         const std::string canonical = canonicalSceneId(sceneName);
-        for (const auto& [id, label] : routeScenes) {
-            if (id == canonical) return label;
+        if (const NavigationDestination* destination = destinationCatalog.findDestination(canonical)) {
+            return destination->label;
         }
         return sceneName;
     };
@@ -1246,6 +1365,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    RuntimeInputManager inputManager;
+    RuntimeNavigationManager runtimeNavigation(destinationCatalog);
+    RuntimeBlockerService runtimeBlockerService;
+    runtimeBlockerService.rebuildOptions(graph, destinationCatalog, sceneLinks);
+    std::vector<std::pair<std::string, std::string>> routeScenes;
+    for (const auto& destination : destinationCatalog.destinations()) {
+        routeScenes.push_back({destination.nodeId, destination.label});
+    }
+
     // Load initial scene
     const std::string initialSceneName = "Paradadebus";
     MapRenderData mapData;
@@ -1263,8 +1391,8 @@ int main(int argc, char* argv[]) {
         }
         const auto sdIt = sceneDataMap.find(initialSceneName);
         if (sdIt != sceneDataMap.end() && sdIt->second.isValid) {
-            mapData.hitboxes = sdIt->second.hitboxes;
-            mapData.interestZones = sdIt->second.interestZones;
+            refreshSceneHitboxes(mapData, sdIt->second,
+                                 runtimeBlockerService.collisionRectsForScene(initialSceneName));
         }
     }
 
@@ -1322,22 +1450,25 @@ int main(int argc, char* argv[]) {
     const std::string generatedGraphPath =
         (fs::path(path).parent_path() / "campus.generated.json").string();
     TabManagerState tabState = createTabManagerState(graph, generatedGraphPath);
-    int selectedRouteSceneIdx = 0;
-    bool routeActive = false;
-    std::string routeTargetScene;
-    float routeProgressPct = 0.0f;
-    float routeTravelElapsed = 0.0f;
-    bool routeTravelCompleted = false;
-    float routeLegStartDistance = 0.0f;
-    std::string routeLegSceneId;
-    std::string routeLegNextSceneId;
-    std::vector<std::string> routeScenePlan;
-    std::vector<Vector2> routePathPoints;
-    std::string routeNextHint;
-    std::string routePathScene;
-    bool routeMobilityReduced = scenario_manager.isMobilityReduced();
-    float routeRefreshCooldown = 0.0f;
-    Vector2 routeAnchorPos = playerPos;
+    RouteRuntimeState routeState;
+    routeState.routeMobilityReduced = scenario_manager.isMobilityReduced();
+    routeState.routeAnchorPos = playerPos;
+    int& selectedRouteSceneIdx = routeState.selectedDestinationIdx;
+    bool& routeActive = routeState.routeActive;
+    std::string& routeTargetScene = routeState.routeTargetNodeId;
+    float& routeProgressPct = routeState.routeProgressPct;
+    float& routeTravelElapsed = routeState.routeTravelElapsed;
+    bool& routeTravelCompleted = routeState.routeTravelCompleted;
+    float& routeLegStartDistance = routeState.routeLegStartDistance;
+    std::string& routeLegSceneId = routeState.routeLegSceneId;
+    std::string& routeLegNextSceneId = routeState.routeLegNextSceneId;
+    std::vector<std::string>& routeScenePlan = routeState.routeScenePlan;
+    std::vector<Vector2>& routePathPoints = routeState.routePathPoints;
+    std::string& routeNextHint = routeState.routeNextHint;
+    std::string& routePathScene = routeState.routePathScene;
+    bool& routeMobilityReduced = routeState.routeMobilityReduced;
+    float& routeRefreshCooldown = routeState.routeRefreshCooldown;
+    Vector2& routeAnchorPos = routeState.routeAnchorPos;
     bool infoMenuOpen = false;
     TraversalResult dfsTraversalView;
     TraversalResult bfsTraversalView;
@@ -1345,6 +1476,8 @@ int main(int argc, char* argv[]) {
     int graphViewPage = 0;
     int dfsViewPage = 0;
     int bfsViewPage = 0;
+    int selectedBlockedNodeIdx = 0;
+    int selectedBlockedEdgeIdx = 0;
     float traversalRefreshCooldown = 0.0f;
     bool showNavigationGraph = false;
     std::vector<Vector2> dfsOverlayPathPoints;
@@ -1357,47 +1490,29 @@ int main(int argc, char* argv[]) {
 
     while (!WindowShouldClose()) {
         const float dt = GetFrameTime();
-        if (IsKeyPressed(KEY_M)) {
+        const RuntimeInputState inputState = inputManager.poll(infoMenuOpen);
+        if (inputState.toggleInfoMenu) {
             infoMenuOpen = !infoMenuOpen;
         }
-        if (IsKeyPressed(KEY_TAB)) {
+        if (inputState.toggleInterestZones) {
             showInterestZones = !showInterestZones;
         }
 
-        const float wheel = GetMouseWheelMove();
+        const float wheel = inputState.zoomWheelDelta;
         if (wheel != 0.0f && !infoMenuOpen) {
             camera.zoom = std::clamp(camera.zoom + wheel * 0.15f, minZoom, maxZoom);
         }
 
-        float moveX = 0.0f;
-        float moveY = 0.0f;
-        if (!infoMenuOpen) {
-            if (IsKeyDown(KEY_W)) moveY -= 1.0f;
-            if (IsKeyDown(KEY_S)) moveY += 1.0f;
-            if (IsKeyDown(KEY_A)) moveX -= 1.0f;
-            if (IsKeyDown(KEY_D)) moveX += 1.0f;
-        }
-
-        if (moveX != 0.0f || moveY != 0.0f) {
-            const float len = std::sqrt(moveX * moveX + moveY * moveY);
-            moveX /= len;
-            moveY /= len;
-        }
-
-        // Orden real de bloques en este spritesheet (4 direcciones):
-        // 0=right, 1=up, 2=left, 3=down
-        if (!infoMenuOpen && IsKeyDown(KEY_W)) {
-            playerAnim.direction = 1; // up
-        } else if (!infoMenuOpen && IsKeyDown(KEY_S)) {
-            playerAnim.direction = 3; // down
-        } else if (!infoMenuOpen && IsKeyDown(KEY_A)) {
-            playerAnim.direction = 2; // left
-        } else if (!infoMenuOpen && IsKeyDown(KEY_D)) {
-            playerAnim.direction = 0; // right
-        }
-        const bool sprinting = !infoMenuOpen &&
-            (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
+        const float moveX = inputState.moveX;
+        const float moveY = inputState.moveY;
+        playerAnim.direction = inputState.facingDirection;
+        const bool sprinting = inputState.sprinting;
         const float currentSpeed = playerSpeed * (sprinting ? sprintMultiplier : 1.0f);
+        const auto currentSceneDataIt = sceneDataMap.find(currentSceneName);
+        if (currentSceneDataIt != sceneDataMap.end() && currentSceneDataIt->second.isValid) {
+            refreshSceneHitboxes(mapData, currentSceneDataIt->second,
+                                 runtimeBlockerService.collisionRectsForScene(currentSceneName));
+        }
 
         Vector2 candidate = playerPos;
         candidate.x += moveX * currentSpeed * dt;
@@ -1416,126 +1531,19 @@ int main(int argc, char* argv[]) {
         if (!WalkablePathService::intersectsAny(WalkablePathService::playerColliderAt(candidate), mapData.hitboxes)) {
             playerPos.y = candidate.y;
         }
-        if (routeActive && !routeTravelCompleted) {
-            routeTravelElapsed += dt;
-        }
         camera.target = playerPos;
         clampCameraTarget(camera, mapData, screenWidth, screenHeight);
 
-        if (routeActive && !routeTravelCompleted) {
-            routeRefreshCooldown -= dt;
-            const bool mobilityChanged = routeMobilityReduced != scenario_manager.isMobilityReduced();
-            const bool movedEnough = WalkablePathService::distanceBetween(playerPos, routeAnchorPos) >= 28.0f;
-            const bool sceneChanged = routePathScene != currentSceneName;
-
-            if (routeRefreshCooldown <= 0.0f || mobilityChanged || movedEnough || sceneChanged) {
-                const std::string currentSceneId = canonicalSceneId(currentSceneName);
-                routeMobilityReduced = scenario_manager.isMobilityReduced();
-                routeAnchorPos = playerPos;
-                routePathScene = currentSceneName;
-                routePathPoints.clear();
-                const PathResult routedPath =
-                    scenario_manager.buildProfiledPath(graph, currentSceneId, routeTargetScene);
-                routeScenePlan = routedPath.path;
-                routeRefreshCooldown = 0.20f;
-
-                tabState.lastPath = routedPath;
-                tabState.hasPath = routedPath.found;
-                tabState.lastStats = complexity_analyzer.analyze(currentSceneId, routeMobilityReduced);
-                tabState.lastComparison = complexity_analyzer.compareAlgorithms(
-                    currentSceneId, routeTargetScene, routeMobilityReduced);
-                tabState.hasComparison = true;
-
-                const bool atDestinationScene = currentSceneId == routeTargetScene;
-                if (atDestinationScene) {
-                    const Vector2 goal = sceneTargetPoint(routeTargetScene);
-                    const float currentToGoal = WalkablePathService::distanceBetween(playerPos, goal);
-                    if (routeLegSceneId != currentSceneId || routeLegNextSceneId != routeTargetScene ||
-                        routeLegStartDistance <= 0.0f) {
-                        routeLegSceneId = currentSceneId;
-                        routeLegNextSceneId = routeTargetScene;
-                        routeLegStartDistance = std::max(currentToGoal, 1.0f);
-                    }
-
-                    const float localProgress = std::clamp(1.0f - (currentToGoal / routeLegStartDistance), 0.0f, 1.0f);
-                    routeProgressPct = std::clamp(localProgress * 100.0f, 0.0f, 100.0f);
-                    routePathPoints = WalkablePathService::buildWalkablePath(mapData, playerPos, goal);
-                    routeNextHint = currentToGoal <= 24.0f
-                        ? "Destination reached"
-                        : "Follow the route to the destination";
-                    if (currentToGoal <= 24.0f) {
-                        routeTravelCompleted = true;
-                        routeProgressPct = 100.0f;
-                        routePathPoints.clear();
-                        routePathScene.clear();
-                        routeScenePlan.clear();
-                    }
-                } else if (!routedPath.found || routeScenePlan.empty()) {
-                    routeNextHint = "No available connection";
-                } else {
-                    const auto currentIt = std::find(routeScenePlan.begin(), routeScenePlan.end(), currentSceneId);
-                    const std::string nextScene = (currentIt != routeScenePlan.end() &&
-                                                   std::next(currentIt) != routeScenePlan.end())
-                        ? *std::next(currentIt)
-                        : routeTargetScene;
-                    float bestLen = std::numeric_limits<float>::max();
-                    std::string bestLabel;
-                    std::vector<Vector2> bestPath;
-
-                    for (const auto& link : sceneLinks) {
-                        if (canonicalSceneId(link.fromScene) != currentSceneId ||
-                            canonicalSceneId(link.toScene) != nextScene ||
-                            !ScenePlanService::isLinkAllowed(link, routeMobilityReduced)) {
-                            continue;
-                        }
-                        const std::vector<Vector2> candidatePath =
-                            WalkablePathService::buildWalkablePath(mapData, playerPos, WalkablePathService::rectCenter(link.triggerRect));
-                        if (candidatePath.empty()) continue;
-                        const float len = WalkablePathService::polylineLength(candidatePath);
-                        if (len < bestLen) {
-                            bestLen = len;
-                            bestPath = candidatePath;
-                            bestLabel = link.label;
-                        }
-                    }
-
-                    routePathPoints = std::move(bestPath);
-                    routeNextHint = routePathPoints.empty()
-                        ? "Could not trace local route"
-                        : "Head to " + bestLabel + " to reach " +
-                          sceneDisplayName(nextScene);
-
-                    // Route progress: completed scene-legs + local approach on current leg.
-                    const int totalLegs = std::max(1, static_cast<int>(routeScenePlan.size()) - 1);
-                    int completedLegs = 0;
-                    if (currentIt != routeScenePlan.end()) {
-                        completedLegs = std::max(0, static_cast<int>(std::distance(routeScenePlan.begin(), currentIt)));
-                    }
-
-                    float localProgress = 0.0f;
-                    if (!routePathPoints.empty()) {
-                        const float currentToGoal = WalkablePathService::distanceBetween(playerPos, routePathPoints.back());
-                        if (routeLegSceneId != currentSceneId || routeLegNextSceneId != nextScene ||
-                            routeLegStartDistance <= 0.0f) {
-                            routeLegSceneId = currentSceneId;
-                            routeLegNextSceneId = nextScene;
-                            routeLegStartDistance = std::max(currentToGoal, 1.0f);
-                        }
-                        localProgress = std::clamp(1.0f - (currentToGoal / routeLegStartDistance), 0.0f, 1.0f);
-                    }
-
-                    const float overallProgress =
-                        ((static_cast<float>(completedLegs) + localProgress) / static_cast<float>(totalLegs)) * 100.0f;
-                    routeProgressPct = std::clamp(overallProgress, 0.0f, 99.9f);
-                }
-            }
-        }
+        runtimeNavigation.refreshRoute(routeState, tabState, graph, scenario_manager,
+                                       complexity_analyzer, sceneLinks, mapData,
+                                       currentSceneName, playerPos, dt,
+                                       sceneDisplayName, sceneTargetPoint);
 
         if (showNavigationGraph) {
             const std::vector<std::string> dfsOverlayNodes =
                 (tabState.hasPath && tabState.lastAction == "PathDFS") ? tabState.lastPath.path
                                                                        : std::vector<std::string>{};
-            dfsOverlayPathPoints = buildOverlayPathForScene(
+            dfsOverlayPathPoints = runtimeNavigation.buildOverlayPathForScene(
                 currentSceneName, dfsOverlayNodes, sceneLinks, mapData, playerPos,
                 scenario_manager.isMobilityReduced(), sceneTargetPoint);
 
@@ -1545,7 +1553,7 @@ int main(int argc, char* argv[]) {
                   tabState.lastAction == "BlockNode"))
                     ? tabState.lastPath.path
                     : std::vector<std::string>{};
-            alternateOverlayPathPoints = buildOverlayPathForScene(
+            alternateOverlayPathPoints = runtimeNavigation.buildOverlayPathForScene(
                 currentSceneName, alternateOverlayNodes, sceneLinks, mapData, playerPos,
                 scenario_manager.isMobilityReduced(), sceneTargetPoint);
         } else {
@@ -1586,8 +1594,8 @@ int main(int argc, char* argv[]) {
                 }
                 const auto sdIt = sceneDataMap.find(req.targetScene);
                 if (sdIt != sceneDataMap.end() && sdIt->second.isValid) {
-                    mapData.hitboxes = sdIt->second.hitboxes;
-                    mapData.interestZones = sdIt->second.interestZones;
+                    refreshSceneHitboxes(mapData, sdIt->second,
+                                         runtimeBlockerService.collisionRectsForScene(req.targetScene));
                 }
                 currentSceneName = req.targetScene;
             }
@@ -1633,7 +1641,7 @@ int main(int argc, char* argv[]) {
                 graph,
                 currentSceneName,
                 sceneLinks,
-                mapData.interestZones,
+                destinationCatalog,
                 highlightedPathNodes,
                 resilience_service.getBlockedNodes(),
                 scenario_manager.isMobilityReduced());
@@ -1770,6 +1778,21 @@ int main(int argc, char* argv[]) {
                 }, Color{120, 120, 120, 135});
             }
 
+            for (const auto& blockedRect : runtimeBlockerService.collisionRectsForScene(currentSceneName)) {
+                const float left = std::max(blockedRect.x, srcRect.x);
+                const float top = std::max(blockedRect.y, srcRect.y);
+                const float right = std::min(blockedRect.x + blockedRect.width, srcRect.x + srcRect.width);
+                const float bottom = std::min(blockedRect.y + blockedRect.height, srcRect.y + srcRect.height);
+                if (right <= left || bottom <= top) continue;
+
+                DrawRectangleRec(Rectangle{
+                    static_cast<float>(mapX) + ((left - srcRect.x) / srcRect.width) * kMapW,
+                    static_cast<float>(mapY) + ((top - srcRect.y) / srcRect.height) * kMapH,
+                    ((right - left) / srcRect.width) * kMapW,
+                    ((bottom - top) / srcRect.height) * kMapH
+                }, Color{220, 70, 70, 145});
+            }
+
             if (routeActive && routePathScene == currentSceneName && routePathPoints.size() >= 2) {
                 const Vector2 routeStart = playerFrontAnchor(playerPos, playerAnim.direction);
                 for (size_t i = 1; i < routePathPoints.size(); ++i) {
@@ -1868,10 +1891,12 @@ int main(int argc, char* argv[]) {
             showHitboxes,
             showTriggers,
             showInterestZones,
-            scenario_manager.isMobilityReduced(),
-            scenario_manager.getStudentType(),
-            resilience_service.getBlockedNodes(),
-            resilience_service.isStillConnected());
+            scenario_manager,
+            runtimeBlockerService,
+            destinationCatalog,
+            selectedBlockedNodeIdx,
+            selectedBlockedEdgeIdx,
+            resilience_service);
 
         if (!infoMenuOpen) {
             rlImGuiBegin();

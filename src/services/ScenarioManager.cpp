@@ -7,6 +7,9 @@ ScenarioManager::ScenarioManager() = default;
 
 void ScenarioManager::setMobilityReduced(bool mr) { mobility_reduced_ = mr; }
 void ScenarioManager::setStudentType(StudentType st) { student_type_ = st; }
+void ScenarioManager::setReferenceWaypoints(std::vector<std::string> referenceWaypoints) {
+    reference_waypoints_ = std::move(referenceWaypoints);
+}
 
 static std::string toLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
@@ -28,33 +31,37 @@ static std::vector<std::string> collectPoiNodeIds(const CampusGraph& graph) {
     return poiIds;
 }
 
-static std::string chooseMandatoryPoi(const CampusGraph& graph,
-                                      const std::string& origin,
-                                      const std::string& destination,
-                                      bool mobilityReduced) {
-    const auto poiIds = collectPoiNodeIds(graph);
-    if (poiIds.empty()) return "";
+static std::string chooseMandatoryWaypoint(const CampusGraph& graph,
+                                           const std::vector<std::string>& preferredWaypoints,
+                                           const std::string& origin,
+                                           const std::string& destination,
+                                           bool mobilityReduced) {
+    std::vector<std::string> candidates = preferredWaypoints;
+    if (candidates.empty()) {
+        candidates = collectPoiNodeIds(graph);
+    }
+    if (candidates.empty()) return "";
 
-    if (std::find(poiIds.begin(), poiIds.end(), origin) != poiIds.end()) return origin;
-    if (std::find(poiIds.begin(), poiIds.end(), destination) != poiIds.end()) return destination;
+    if (std::find(candidates.begin(), candidates.end(), origin) != candidates.end()) return origin;
+    if (std::find(candidates.begin(), candidates.end(), destination) != candidates.end()) return destination;
 
-    std::string bestPoi;
+    std::string bestWaypoint;
     double bestCost = std::numeric_limits<double>::infinity();
-    for (const auto& poiId : poiIds) {
-        if (poiId == origin || poiId == destination) continue;
-        const PathResult toPoi = Algorithms::findPath(graph, origin, poiId, mobilityReduced, false);
-        const PathResult fromPoi = Algorithms::findPath(graph, poiId, destination, mobilityReduced, false);
-        if (!toPoi.found || !fromPoi.found) continue;
+    for (const auto& waypointId : candidates) {
+        if (!graph.hasNode(waypointId) || waypointId == origin || waypointId == destination) continue;
+        const PathResult toWaypoint = Algorithms::findPath(graph, origin, waypointId, mobilityReduced, false);
+        const PathResult fromWaypoint = Algorithms::findPath(graph, waypointId, destination, mobilityReduced, false);
+        if (!toWaypoint.found || !fromWaypoint.found) continue;
 
-        const double candidate = toPoi.total_weight + fromPoi.total_weight;
+        const double candidate = toWaypoint.total_weight + fromWaypoint.total_weight;
         if (candidate < bestCost) {
             bestCost = candidate;
-            bestPoi = poiId;
+            bestWaypoint = waypointId;
         }
     }
 
-    if (!bestPoi.empty()) return bestPoi;
-    return poiIds.front();
+    if (!bestWaypoint.empty()) return bestWaypoint;
+    return candidates.front();
 }
 
 bool ScenarioManager::isMobilityReduced() const {
@@ -69,12 +76,12 @@ std::vector<std::string> ScenarioManager::applyProfile(const CampusGraph& graph,
     waypoints.push_back(origin);
 
     if (student_type_ == StudentType::NEW_STUDENT) {
-        const std::string mandatoryPoi = chooseMandatoryPoi(
-            graph, origin, destination, isMobilityReduced());
-        if (!mandatoryPoi.empty() &&
-            mandatoryPoi != origin &&
-            mandatoryPoi != destination) {
-            waypoints.push_back(mandatoryPoi);
+        const std::string mandatoryWaypoint = chooseMandatoryWaypoint(
+            graph, reference_waypoints_, origin, destination, isMobilityReduced());
+        if (!mandatoryWaypoint.empty() &&
+            mandatoryWaypoint != origin &&
+            mandatoryWaypoint != destination) {
+            waypoints.push_back(mandatoryWaypoint);
         }
     }
 

@@ -4,7 +4,11 @@
 ResilienceService::ResilienceService(CampusGraph& graph) : graph_(graph) {}
 
 void ResilienceService::blockEdge(const std::string& from, const std::string& to) {
-    graph_.setEdgeBlocked(from, to, true);
+    blockEdge(from, to, "");
+}
+
+void ResilienceService::blockEdge(const std::string& from, const std::string& to, const std::string& type) {
+    graph_.setEdgeBlocked(from, to, true, type);
     auto pair = std::make_pair(from, to);
     if (std::find(blocked_edges_.begin(), blocked_edges_.end(), pair) == blocked_edges_.end())
         blocked_edges_.push_back(pair);
@@ -12,7 +16,11 @@ void ResilienceService::blockEdge(const std::string& from, const std::string& to
 }
 
 void ResilienceService::unblockEdge(const std::string& from, const std::string& to) {
-    graph_.setEdgeBlocked(from, to, false);
+    unblockEdge(from, to, "");
+}
+
+void ResilienceService::unblockEdge(const std::string& from, const std::string& to, const std::string& type) {
+    graph_.setEdgeBlocked(from, to, false, type);
     blocked_edges_.erase(std::remove(blocked_edges_.begin(), blocked_edges_.end(),
                                       std::make_pair(from, to)), blocked_edges_.end());
     refreshConnectivity();

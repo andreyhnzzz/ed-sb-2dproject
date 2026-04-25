@@ -10,7 +10,9 @@ public:
     explicit ResilienceService(CampusGraph& graph);
 
     void blockEdge(const std::string& from, const std::string& to);
+    void blockEdge(const std::string& from, const std::string& to, const std::string& type);
     void unblockEdge(const std::string& from, const std::string& to);
+    void unblockEdge(const std::string& from, const std::string& to, const std::string& type);
     void blockNode(const std::string& nodeId);
     void unblockNode(const std::string& nodeId);
     void unblockAll();

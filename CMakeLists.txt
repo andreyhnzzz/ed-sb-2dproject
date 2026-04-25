@@ -106,6 +106,10 @@ set(SOURCES
         src/services/SpriteAnimationService.cpp
         src/services/RuntimeTextService.cpp
         src/services/MapRenderService.cpp
+        src/services/DestinationCatalog.cpp
+        src/services/RuntimeBlockerService.cpp
+        src/runtime/RuntimeInputManager.cpp
+        src/runtime/RuntimeNavigationManager.cpp
         src/ui/TabManager.cpp
 )
 

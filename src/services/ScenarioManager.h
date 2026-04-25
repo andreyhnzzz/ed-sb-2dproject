@@ -12,6 +12,7 @@ public:
 
     void setMobilityReduced(bool mr);
     void setStudentType(StudentType st);
+    void setReferenceWaypoints(std::vector<std::string> referenceWaypoints);
     std::vector<std::string> applyProfile(const CampusGraph& graph,
                                           const std::string& origin,
                                           const std::string& destination) const;
@@ -25,4 +26,5 @@ public:
 private:
     bool mobility_reduced_{false};
     StudentType student_type_{StudentType::VETERAN_STUDENT};
+    std::vector<std::string> reference_waypoints_;
 };

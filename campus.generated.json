@@ -46,6 +46,15 @@
       "type": "Portal Secundario"
     },
     {
+      "base_weight": 41.7775059092809,
+      "blocked_for_mr": false,
+      "from": "paradadebus",
+      "id": "edge_paradadebus_poi_paradadebus_estacionamiento",
+      "mobility_weight": 41.7775059092809,
+      "to": "poi_paradadebus_estacionamiento",
+      "type": "POI"
+    },
+    {
       "base_weight": 2.009975124224178,
       "blocked_for_mr": false,
       "from": "piso1",
@@ -154,6 +163,24 @@
       "type": "Escalera Derecha"
     },
     {
+      "base_weight": 14.866068747318506,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "edge_piso1_poi_piso1_aulas_1_piso",
+      "mobility_weight": 14.866068747318506,
+      "to": "poi_piso1_aulas_1_piso",
+      "type": "POI"
+    },
+    {
+      "base_weight": 18.542518707014967,
+      "blocked_for_mr": false,
+      "from": "piso1",
+      "id": "edge_piso1_poi_piso1_zona_recreativa_1_piso_2",
+      "mobility_weight": 18.542518707014967,
+      "to": "poi_piso1_zona_recreativa_1_piso_2",
+      "type": "POI"
+    },
+    {
       "base_weight": 0.0,
       "blocked_for_mr": false,
       "from": "piso2",
@@ -235,6 +262,33 @@
       "type": "Escalera Derecha"
     },
     {
+      "base_weight": 38.26257963075673,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "edge_piso2_poi_piso2_aulas_2_piso",
+      "mobility_weight": 38.26257963075673,
+      "to": "poi_piso2_aulas_2_piso",
+      "type": "POI"
+    },
+    {
+      "base_weight": 32.356645376182,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "edge_piso2_poi_piso2_auditorio_2_piso_2",
+      "mobility_weight": 32.356645376182,
+      "to": "poi_piso2_auditorio_2_piso_2",
+      "type": "POI"
+    },
+    {
+      "base_weight": 16.632047378479896,
+      "blocked_for_mr": false,
+      "from": "piso2",
+      "id": "edge_piso2_poi_piso2_banos_2_piso_3",
+      "mobility_weight": 16.632047378479896,
+      "to": "poi_piso2_banos_2_piso_3",
+      "type": "POI"
+    },
+    {
       "base_weight": 4.825971404805462,
       "blocked_for_mr": false,
       "from": "piso3",
@@ -289,6 +343,33 @@
       "type": "Escalera Derecha"
     },
     {
+      "base_weight": 16.982951009762704,
+      "blocked_for_mr": false,
+      "from": "piso3",
+      "id": "edge_piso3_poi_piso3_aulas_3_piso",
+      "mobility_weight": 16.982951009762704,
+      "to": "poi_piso3_aulas_3_piso",
+      "type": "POI"
+    },
+    {
+      "base_weight": 16.876018487783192,
+      "blocked_for_mr": false,
+      "from": "piso3",
+      "id": "edge_piso3_poi_piso3_banos_3_piso_2",
+      "mobility_weight": 16.876018487783192,
+      "to": "poi_piso3_banos_3_piso_2",
+      "type": "POI"
+    },
+    {
+      "base_weight": 16.745148551147583,
+      "blocked_for_mr": false,
+      "from": "piso3",
+      "id": "edge_piso3_poi_piso3_zona_recreativa_3_piso_3",
+      "mobility_weight": 16.745148551147583,
+      "to": "poi_piso3_zona_recreativa_3_piso_3",
+      "type": "POI"
+    },
+    {
       "base_weight": 4.825971404805462,
       "blocked_for_mr": false,
       "from": "piso4",
@@ -314,6 +395,42 @@
       "mobility_weight": null,
       "to": "piso5",
       "type": "Escalera Derecha"
+    },
+    {
+      "base_weight": 42.22300913009399,
+      "blocked_for_mr": false,
+      "from": "piso4",
+      "id": "edge_piso4_poi_piso4_aulas_4_piso",
+      "mobility_weight": 42.22300913009399,
+      "to": "poi_piso4_aulas_4_piso",
+      "type": "POI"
+    },
+    {
+      "base_weight": 31.013706647222932,
+      "blocked_for_mr": false,
+      "from": "piso4",
+      "id": "edge_piso4_poi_piso4_oficinas_4_piso_2",
+      "mobility_weight": 31.013706647222932,
+      "to": "poi_piso4_oficinas_4_piso_2",
+      "type": "POI"
+    },
+    {
+      "base_weight": 16.95982384932108,
+      "blocked_for_mr": false,
+      "from": "piso5",
+      "id": "edge_piso5_poi_piso5_aulas_5_piso",
+      "mobility_weight": 16.95982384932108,
+      "to": "poi_piso5_aulas_5_piso",
+      "type": "POI"
+    },
+    {
+      "base_weight": 16.73155701063114,
+      "blocked_for_mr": false,
+      "from": "piso5",
+      "id": "edge_piso5_poi_piso5_banos_5_piso_2",
+      "mobility_weight": 16.73155701063114,
+      "to": "poi_piso5_banos_5_piso_2",
+      "type": "POI"
     }
   ],
   "nodes": [
@@ -387,6 +504,110 @@
       "type": "K-5",
       "x": 572.0,
       "y": 250.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_paradadebus_estacionamiento",
+      "name": "Estacionamiento",
+      "type": "POI",
+      "x": 886.0,
+      "y": 430.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso1_aulas_1_piso",
+      "name": "Aulas 1 piso",
+      "type": "POI",
+      "x": 542.0,
+      "y": 416.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso1_zona_recreativa_1_piso_2",
+      "name": "Zona recreativa 1 piso",
+      "type": "POI",
+      "x": 551.5,
+      "y": 454.5,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso2_auditorio_2_piso_2",
+      "name": "Auditorio 2 piso",
+      "type": "POI",
+      "x": 847.0,
+      "y": 420.5,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso2_aulas_2_piso",
+      "name": "Aulas 2 piso",
+      "type": "POI",
+      "x": 227.5,
+      "y": 416.5,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso2_banos_2_piso_3",
+      "name": "Banos 2 piso",
+      "type": "POI",
+      "x": 555.5,
+      "y": 415.5,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso3_aulas_3_piso",
+      "name": "Aulas 3 piso",
+      "type": "POI",
+      "x": 535.0,
+      "y": 415.75,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso3_banos_3_piso_2",
+      "name": "Banos 3 piso",
+      "type": "POI",
+      "x": 556.0,
+      "y": 418.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso3_zona_recreativa_3_piso_3",
+      "name": "Zona recreativa 3 piso",
+      "type": "POI",
+      "x": 406.0,
+      "y": 228.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso4_aulas_4_piso",
+      "name": "Aulas 4 piso",
+      "type": "POI",
+      "x": 224.0,
+      "y": 391.5,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso4_oficinas_4_piso_2",
+      "name": "Oficinas 4 piso",
+      "type": "POI",
+      "x": 892.0,
+      "y": 394.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso5_aulas_5_piso",
+      "name": "Aulas 5 piso",
+      "type": "POI",
+      "x": 537.25,
+      "y": 416.0,
+      "z": 0.0
+    },
+    {
+      "id": "poi_piso5_banos_5_piso_2",
+      "name": "Banos 5 piso",
+      "type": "POI",
+      "x": 555.5,
+      "y": 416.5,
       "z": 0.0
     }
   ]
