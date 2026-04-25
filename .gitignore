@@ -1,4 +1,1 @@
-.idea/
-cmake-build-*/
-build/
-build-*/
+Nothing to output - the change list contains only a markdown file (REFACTORING_TUTORIAL.md) which is a source/config file and should not be ignored.
