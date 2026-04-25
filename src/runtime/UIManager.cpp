@@ -87,15 +87,15 @@ std::string buildSelectionCriterion(StudentType studentType, bool mobilityReduce
     return "Ruta mas corta";
 }
 
-Vector2 playerFrontAnchor(const Vector2& playerPos, int direction) {
-    constexpr float kOffset = 14.0f;
-    switch (direction) {
-        case 1: return Vector2{playerPos.x - kOffset, playerPos.y - 6.0f};
-        case 2: return Vector2{playerPos.x + kOffset, playerPos.y - 6.0f};
-        case 3: return Vector2{playerPos.x, playerPos.y - kOffset};
-        case 0:
-        default: return Vector2{playerPos.x, playerPos.y + kOffset};
-    }
+Vector2 routeLeadAnchor(const Vector2& playerPos, const Vector2& nextPoint) {
+    const Vector2 delta{nextPoint.x - playerPos.x, nextPoint.y - playerPos.y};
+    const float len = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (len <= 0.001f) return playerPos;
+    constexpr float kLead = 12.0f;
+    return Vector2{
+        playerPos.x + (delta.x / len) * kLead,
+        playerPos.y + (delta.y / len) * kLead
+    };
 }
 
 PathResult mergeProfiledSegments(const std::vector<PathResult>& segments) {
@@ -234,6 +234,25 @@ const char* studentTypeToLabel(StudentType studentType) {
     }
 }
 
+Color lightenColor(Color c, int amount) {
+    auto up = [amount](unsigned char v) -> unsigned char {
+        const int boosted = static_cast<int>(v) + amount;
+        return static_cast<unsigned char>(std::clamp(boosted, 0, 255));
+    };
+    return Color{up(c.r), up(c.g), up(c.b), c.a};
+}
+
+Color nodeLevelColor(const std::string& nodeIdLower) {
+    // Nivel base para escenas generales del campus.
+    if (nodeIdLower == "piso1") return Color{90, 180, 255, 235};
+    if (nodeIdLower == "piso2") return Color{120, 210, 255, 235};
+    // Biblioteca comparte color con piso 3.
+    if (nodeIdLower == "piso3" || nodeIdLower == "biblio") return Color{140, 230, 170, 235};
+    if (nodeIdLower == "piso4") return Color{255, 200, 120, 235};
+    if (nodeIdLower == "piso5") return Color{255, 150, 150, 235};
+    return Color{170, 190, 230, 235};
+}
+
 void drawCurrentSceneNavigationOverlay(const CampusGraph& graph,
                                        const std::string& currentSceneName,
                                        const std::vector<SceneLink>& sceneLinks,
@@ -248,6 +267,7 @@ void drawCurrentSceneNavigationOverlay(const CampusGraph& graph,
     const Vector2 scenePos{static_cast<float>(sceneNode.x), static_cast<float>(sceneNode.y)};
     const bool nodeBlocked =
         std::find(blockedNodes.begin(), blockedNodes.end(), currentSceneId) != blockedNodes.end();
+    const bool isCurrentScene = StringUtils::toLowerCopy(currentSceneName) == currentSceneId;
 
     std::unordered_set<std::string> drawnTargets;
     for (const auto& link : sceneLinks) {
@@ -314,7 +334,9 @@ void drawCurrentSceneNavigationOverlay(const CampusGraph& graph,
         DrawText(poiEdge.label.c_str(), poiLabelX, poiLabelY, 12, Color{255, 228, 150, 245});
     }
 
-    const Color nodeColor = nodeBlocked ? Color{230, 90, 90, 240} : Color{85, 160, 255, 240};
+    Color nodeColor = nodeLevelColor(currentSceneId);
+    if (isCurrentScene) nodeColor = lightenColor(nodeColor, 24);
+    if (nodeBlocked) nodeColor = Color{230, 90, 90, 240};
     DrawCircleV(scenePos, 10.0f, nodeColor);
     DrawCircleLines(static_cast<int>(scenePos.x), static_cast<int>(scenePos.y), 10.0f, WHITE);
     DrawText(sceneNode.name.c_str(), static_cast<int>(scenePos.x) + 12, static_cast<int>(scenePos.y) - 10,
@@ -357,7 +379,7 @@ void UIManager::renderWorld(const RenderContext& ctx,
         if (ctx.routeActive && ctx.routePathScene && ctx.routePathPoints &&
             *ctx.routePathScene == ctx.currentSceneName && ctx.routePathPoints->size() >= 2) {
             const float pulse = 2.8f + std::sin(static_cast<float>(GetTime()) * 3.0f) * 0.8f;
-            const Vector2 routeStart = playerFrontAnchor(ctx.playerPos, ctx.playerAnim.direction);
+            const Vector2 routeStart = routeLeadAnchor(ctx.playerPos, (*ctx.routePathPoints)[1]);
             for (size_t i = 1; i < ctx.routePathPoints->size(); ++i) {
                 const Vector2 a = (i == 1) ? routeStart : (*ctx.routePathPoints)[i - 1];
                 DrawLineEx(a, (*ctx.routePathPoints)[i], pulse, Color{255, 210, 70, 235});
@@ -518,7 +540,7 @@ void UIManager::renderMinimap(const RenderContext& ctx, const std::vector<Rectan
 
     if (ctx.routeActive && ctx.routePathScene && ctx.routePathPoints &&
         *ctx.routePathScene == ctx.currentSceneName && ctx.routePathPoints->size() >= 2) {
-        const Vector2 routeStart = playerFrontAnchor(ctx.playerPos, ctx.playerAnim.direction);
+        const Vector2 routeStart = routeLeadAnchor(ctx.playerPos, (*ctx.routePathPoints)[1]);
         for (size_t i = 1; i < ctx.routePathPoints->size(); ++i) {
             const Vector2 worldA = (i == 1) ? routeStart : (*ctx.routePathPoints)[i - 1];
             const Vector2 a = clampMiniPoint(worldToMini(worldA));
@@ -624,8 +646,8 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
 
     const int titleFont = px(22);
     const int sectionTitleFont = px(24);
-    const int bodyFont = px(18);
-    const int bodyMutedFont = px(18);
+    const int bodyFont = px(17);
+    const int bodyMutedFont = px(17);
     const int topBarHeight = px(44);
     const int panelMargin = px(16);
     const int sectionPad = px(14);
@@ -658,7 +680,7 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
 
     const int contentY = topH + margin;
     const int contentH = ctx.screenHeight - contentY - margin;
-    const int leftW = static_cast<int>(ctx.screenWidth * 0.32f);
+    const int leftW = static_cast<int>(ctx.screenWidth * 0.28f);
     const int rightX = margin + leftW + margin;
     const int rightW = ctx.screenWidth - rightX - margin;
     Rectangle leftPanel{static_cast<float>(margin), static_cast<float>(contentY),
@@ -757,59 +779,67 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
     DrawText("Academic Control", rightX + sectionPad, yRight, sectionTitleFont, white);
     yRight += px(38);
     DrawLine(rightX + px(12), yRight, rightX + rightW - px(12), yRight, Color{85, 98, 122, 255});
-    yRight += sectionPad;
+    yRight += px(18);
 
-    DrawText(TextFormat("Current scene: %s", ctx.currentSceneName.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
-    DrawText(TextFormat("Hitboxes: %s", state.showHitboxes ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Triggers: %s", state.showTriggers ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Interest zones: %s", state.showInterestZones ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Reduced mobility: %s", scenarioManager.isMobilityReduced() ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText(TextFormat("Current scene: %s", ctx.currentSceneName.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(26);
+    DrawText(TextFormat("Hitboxes: %s", state.showHitboxes ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    DrawText(TextFormat("Triggers: %s", state.showTriggers ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    DrawText(TextFormat("Interest zones: %s", state.showInterestZones ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    DrawText(TextFormat("Reduced mobility: %s", scenarioManager.isMobilityReduced() ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
     DrawText(TextFormat("Student profile: %s",
                         scenarioManager.getStudentType() == StudentType::NEW_STUDENT
                             ? "New"
                             : (scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT ? "Disabled" : "Veteran")),
-             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
+             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(30);
 
     Rectangle graphToggleBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
                              static_cast<float>(px(290)), static_cast<float>(buttonHeight)};
     if (drawRayButton(graphToggleBtn,
-                      state.showNavigationGraph ? "Visualizar Grafo de Navegacion: ON"
-                                                : "Visualizar Grafo de Navegacion: OFF",
+                      state.showNavigationGraph ? "Grafo navegacion: ON"
+                                                : "Grafo navegacion: OFF",
                       bodyFont, btn, btnHover, btnActive, white)) {
         state.showNavigationGraph = !state.showNavigationGraph;
     }
-    yRight += px(46);
+    yRight += px(54);
 
-    Rectangle newProfileBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
-                            static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
-    Rectangle veteranProfileBtn{static_cast<float>(rightX + sectionPad + px(126)), static_cast<float>(yRight),
-                                static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
-    Rectangle disabledProfileBtn{static_cast<float>(rightX + sectionPad + px(252)), static_cast<float>(yRight),
-                                 static_cast<float>(px(152)), static_cast<float>(buttonHeight)};
-    if (drawRayButton(newProfileBtn, "Estudiante Nuevo", bodyMutedFont, btn, btnHover, btnActive, white)) {
+    const int rightInnerX = rightX + sectionPad;
+    const int rightInnerW = rightW - sectionPad * 2;
+    const int hGap = px(8);
+
+    const int profileTwoColW = std::max(px(90), (rightInnerW - hGap) / 2);
+    Rectangle newProfileBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
+                            static_cast<float>(profileTwoColW), static_cast<float>(buttonHeight)};
+    Rectangle veteranProfileBtn{static_cast<float>(rightInnerX + profileTwoColW + hGap), static_cast<float>(yRight),
+                                static_cast<float>(profileTwoColW), static_cast<float>(buttonHeight)};
+    yRight += buttonHeight + px(8);
+    Rectangle disabledProfileBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
+                                 static_cast<float>(rightInnerW), static_cast<float>(buttonHeight)};
+    if (drawRayButton(newProfileBtn, "Nuevo", bodyMutedFont, btn, btnHover, btnActive, white)) {
         scenarioManager.setStudentType(StudentType::NEW_STUDENT);
         routeState.routeRefreshCooldown = 0.0f;
     }
-    if (drawRayButton(veteranProfileBtn, "Estudiante Veterano", bodyMutedFont, btn, btnHover, btnActive, white)) {
+    if (drawRayButton(veteranProfileBtn, "Veterano", bodyMutedFont, btn, btnHover, btnActive, white)) {
         scenarioManager.setStudentType(StudentType::VETERAN_STUDENT);
         routeState.routeRefreshCooldown = 0.0f;
     }
-    if (drawRayButton(disabledProfileBtn, "Movilidad Reducida", bodyMutedFont, btn, btnHover, btnActive, white)) {
+    if (drawRayButton(disabledProfileBtn, "Discapacitado", bodyMutedFont, btn, btnHover, btnActive, white)) {
         scenarioManager.setStudentType(StudentType::DISABLED_STUDENT);
         routeState.routeRefreshCooldown = 0.0f;
     }
-    yRight += px(46);
+    yRight += px(54);
 
     const auto& blockNodeOptions = runtimeBlockerService.nodeOptions();
     if (!blockNodeOptions.empty()) {
         state.selectedBlockedNodeIdx =
             std::clamp(state.selectedBlockedNodeIdx, 0, static_cast<int>(blockNodeOptions.size()) - 1);
-        Rectangle prevNodeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+        const int selectorW = rightInnerW;
+        const int arrowW = px(30);
+        Rectangle prevNodeBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
                               static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
-        Rectangle nextNodeBtn{static_cast<float>(rightX + sectionPad + px(310)), static_cast<float>(yRight),
+        Rectangle nextNodeBtn{static_cast<float>(rightInnerX + selectorW - arrowW), static_cast<float>(yRight),
                               static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
-        Rectangle nodeLabelBox{static_cast<float>(rightX + sectionPad + px(36)), static_cast<float>(yRight),
-                               static_cast<float>(px(268)), static_cast<float>(buttonHeight)};
+        Rectangle nodeLabelBox{static_cast<float>(rightInnerX + arrowW + hGap), static_cast<float>(yRight),
+                               static_cast<float>(selectorW - (arrowW * 2 + hGap * 2)), static_cast<float>(buttonHeight)};
         if (drawRayButton(prevNodeBtn, "<", bodyFont, btn, btnHover, btnActive, white)) {
             state.selectedBlockedNodeIdx =
                 (state.selectedBlockedNodeIdx - 1 + static_cast<int>(blockNodeOptions.size())) %
@@ -825,19 +855,21 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
                  static_cast<int>(nodeLabelBox.x + px(8)),
                  static_cast<int>(nodeLabelBox.y + px(8)),
                  bodyMutedFont, white);
-        yRight += px(42);
+        yRight += px(48);
     }
 
     const auto& blockEdgeOptions = runtimeBlockerService.edgeOptions();
     if (!blockEdgeOptions.empty()) {
         state.selectedBlockedEdgeIdx =
             std::clamp(state.selectedBlockedEdgeIdx, 0, static_cast<int>(blockEdgeOptions.size()) - 1);
-        Rectangle prevEdgeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
+        const int selectorW = rightInnerW;
+        const int arrowW = px(30);
+        Rectangle prevEdgeBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
                               static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
-        Rectangle nextEdgeBtn{static_cast<float>(rightX + sectionPad + px(310)), static_cast<float>(yRight),
+        Rectangle nextEdgeBtn{static_cast<float>(rightInnerX + selectorW - arrowW), static_cast<float>(yRight),
                               static_cast<float>(px(30)), static_cast<float>(buttonHeight)};
-        Rectangle edgeLabelBox{static_cast<float>(rightX + sectionPad + px(36)), static_cast<float>(yRight),
-                               static_cast<float>(px(268)), static_cast<float>(buttonHeight)};
+        Rectangle edgeLabelBox{static_cast<float>(rightInnerX + arrowW + hGap), static_cast<float>(yRight),
+                               static_cast<float>(selectorW - (arrowW * 2 + hGap * 2)), static_cast<float>(buttonHeight)};
         if (drawRayButton(prevEdgeBtn, "<", bodyFont, btn, btnHover, btnActive, white)) {
             state.selectedBlockedEdgeIdx =
                 (state.selectedBlockedEdgeIdx - 1 + static_cast<int>(blockEdgeOptions.size())) %
@@ -853,23 +885,25 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
                  static_cast<int>(edgeLabelBox.x + px(8)),
                  static_cast<int>(edgeLabelBox.y + px(8)),
                  bodyMutedFont, white);
-        yRight += px(42);
+        yRight += px(48);
     }
 
-    Rectangle blockNodeBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
-                           static_cast<float>(px(118)), static_cast<float>(buttonHeight)};
-    Rectangle blockEdgeBtn{static_cast<float>(rightX + sectionPad + px(126)), static_cast<float>(yRight),
-                           static_cast<float>(px(142)), static_cast<float>(buttonHeight)};
-    Rectangle clearBlocksBtn{static_cast<float>(rightX + sectionPad + px(276)), static_cast<float>(yRight),
-                             static_cast<float>(px(128)), static_cast<float>(buttonHeight)};
+    const int blockColW = std::max(px(88), (rightInnerW - hGap) / 2);
+    Rectangle blockNodeBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
+                           static_cast<float>(blockColW), static_cast<float>(buttonHeight)};
+    Rectangle blockEdgeBtn{static_cast<float>(rightInnerX + blockColW + hGap), static_cast<float>(yRight),
+                           static_cast<float>(blockColW), static_cast<float>(buttonHeight)};
+    yRight += buttonHeight + px(8);
+    Rectangle clearBlocksBtn{static_cast<float>(rightInnerX), static_cast<float>(yRight),
+                             static_cast<float>(rightInnerW), static_cast<float>(buttonHeight)};
     if (!blockNodeOptions.empty() &&
-        drawRayButton(blockNodeBtn, "Bloquear Nodo", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        drawRayButton(blockNodeBtn, "Bloq. Nodo", bodyMutedFont, btn, btnHover, btnActive, white)) {
         runtimeBlockerService.blockNode(blockNodeOptions[state.selectedBlockedNodeIdx], resilienceService);
         tabState.lastAction = "BlockNode";
         routeState.routeRefreshCooldown = 0.0f;
     }
     if (!blockEdgeOptions.empty() &&
-        drawRayButton(blockEdgeBtn, "Bloquear Conexion", bodyMutedFont, btn, btnHover, btnActive, white)) {
+        drawRayButton(blockEdgeBtn, "Bloq. Conexion", bodyMutedFont, btn, btnHover, btnActive, white)) {
         runtimeBlockerService.blockEdge(blockEdgeOptions[state.selectedBlockedEdgeIdx], resilienceService);
         tabState.lastAction = "BlockEdge";
         routeState.routeRefreshCooldown = 0.0f;
@@ -879,43 +913,73 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
         tabState.lastAction = "UnblockAll";
         routeState.routeRefreshCooldown = 0.0f;
     }
-    yRight += px(50);
+    yRight += px(60);
 
     const std::string academicOrigin = sceneDisplayName(ctx.currentSceneName);
     const std::string academicDestination = (routeState.routeActive && !routeState.routeTargetNodeId.empty())
         ? destinationCatalog.displayLabel(routeState.routeTargetNodeId)
         : (tabState.endId[0] != '\0' ? sceneDisplayName(tabState.endId) : std::string("-"));
-    DrawText(TextFormat("Origin: %s", academicOrigin.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
-    DrawText(TextFormat("Destination: %s", academicDestination.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
-    DrawText(TextFormat("Resilience node: %s", tabState.nodeId), rightX + sectionPad, yRight, bodyFont, white); yRight += px(28);
+    const int pagerTopY = contentY + contentH - px(42);
+    const int reserveForTail = px(320); // reserva amplia para resumen+rubrica+paginador
+    auto canDrawDetailLine = [&](int lineStep) -> bool {
+        return (yRight + lineStep) < (pagerTopY - reserveForTail);
+    };
+
+    DrawText(TextFormat("Origin: %s", academicOrigin.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
+    DrawText(TextFormat("Destination: %s", academicDestination.c_str()), rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
+    DrawText(TextFormat("Resilience node: %s", tabState.nodeId), rightX + sectionPad, yRight, bodyFont, white); yRight += px(32);
 
     if (tabState.hasTraversal) {
-        DrawText(TextFormat("Traversal visited nodes: %d", tabState.lastTraversal.nodes_visited), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-        DrawText(TextFormat("Traversal time: %lld us", tabState.lastTraversal.elapsed_us), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        if (canDrawDetailLine(px(24))) {
+            DrawText(TextFormat("Traversal visited nodes: %d", tabState.lastTraversal.nodes_visited), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        }
+        if (canDrawDetailLine(px(28))) {
+            DrawText(TextFormat("Traversal time: %lld us", tabState.lastTraversal.elapsed_us), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(28);
+        }
     }
     if (tabState.hasPath) {
-        DrawText(TextFormat("Path found: %s", tabState.lastPath.found ? "yes" : "no"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-        DrawText(TextFormat("Path weight: %.2f", tabState.lastPath.total_weight), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        if (canDrawDetailLine(px(24))) {
+            DrawText(TextFormat("Path found: %s", tabState.lastPath.found ? "yes" : "no"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        }
+        if (canDrawDetailLine(px(28))) {
+            DrawText(TextFormat("Path weight: %.2f", tabState.lastPath.total_weight), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(28);
+        }
     }
     if (tabState.hasComparison) {
-        DrawText(TextFormat("DFS reaches destination: %s", tabState.lastComparison.dfs_reaches_destination ? "yes" : "no"),
-                 rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-        DrawText(TextFormat("BFS reaches destination: %s", tabState.lastComparison.bfs_reaches_destination ? "yes" : "no"),
-                 rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+        if (canDrawDetailLine(px(24))) {
+            DrawText(TextFormat("DFS reaches destination: %s", tabState.lastComparison.dfs_reaches_destination ? "yes" : "no"),
+                     rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        }
+        if (canDrawDetailLine(px(24))) {
+            DrawText(TextFormat("BFS reaches destination: %s", tabState.lastComparison.bfs_reaches_destination ? "yes" : "no"),
+                     rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+        }
     }
-    DrawText(TextFormat("Global connectivity: %s", resilienceService.isStillConnected() ? "connected" : "fragmented"),
-             rightX + sectionPad, yRight, bodyFont, white); yRight += px(24);
+    if (canDrawDetailLine(px(30))) {
+        DrawText(TextFormat("Global connectivity: %s", resilienceService.isStillConnected() ? "connected" : "fragmented"),
+                 rightX + sectionPad, yRight, bodyFont, white); yRight += px(30);
+    }
 
-    DrawText("Route summary:", rightX + sectionPad, yRight, bodyFont, white); yRight += px(22);
-    const char* routeStatus = !routeState.routeActive ? "inactive" : (routeState.routeTravelCompleted ? "completed" : "in progress");
-    DrawText(TextFormat("Status: %s", routeStatus), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Progress: %.1f%%", routeState.routeProgressPct),
-             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
+    DrawText("Route summary:", rightX + sectionPad, yRight, bodyFont, white); yRight += px(20);
+    const char* routeStatus = routeState.routeTravelCompleted
+        ? "completed"
+        : (routeState.routeActive ? "in progress" : "inactive");
+    const int rubricBlockMin = px(118); // titulo + tabs + label + area paginador
+    int routeAvail = pagerTopY - yRight - rubricBlockMin;
+    if (routeAvail < 0) routeAvail = 0;
+    int routeUsed = 0;
+    auto drawRouteLineIfFits = [&](const std::string& text, int step, Color color) {
+        if (routeUsed + step > routeAvail) return;
+        DrawText(text.c_str(), rightX + sectionPad, yRight, bodyMutedFont, color);
+        yRight += step;
+        routeUsed += step;
+    };
+
+    drawRouteLineIfFits(TextFormat("Status: %s", routeStatus), px(20), muted);
+    drawRouteLineIfFits(TextFormat("Progress: %.1f%%", routeState.routeProgressPct), px(20), muted);
     const std::string elapsedLabel = RuntimeTextService::formatElapsedTime(routeState.routeTravelElapsed);
-    DrawText(TextFormat("Elapsed time: %s", elapsedLabel.c_str()),
-             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
-    DrawText(TextFormat("Blocked nodes: %d", static_cast<int>(blockedNodes.size())),
-             rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(24);
+    drawRouteLineIfFits(TextFormat("Elapsed: %s", elapsedLabel.c_str()), px(22), muted);
+    drawRouteLineIfFits(TextFormat("Blocked nodes: %d", static_cast<int>(blockedNodes.size())), px(22), muted);
 
     DrawText("Rubric evidence:", rightX + sectionPad, yRight, bodyFont, white);
     yRight += px(24);
@@ -1203,8 +1267,10 @@ void UIManager::renderLegacyImGuiOverlay(State& state,
         const bool isCurrentScene = sceneId == StringUtils::toLowerCopy(currentSceneName);
         const bool isBlockedScene =
             std::find(blockedNodes.begin(), blockedNodes.end(), sceneId) != blockedNodes.end();
-        const ImU32 nodeColor = isBlockedScene ? IM_COL32(220, 90, 90, 255)
-            : (isCurrentScene ? IM_COL32(50, 210, 255, 255) : IM_COL32(90, 155, 255, 255));
+        Color baseNodeColor = nodeLevelColor(sceneId);
+        if (isCurrentScene) baseNodeColor = lightenColor(baseNodeColor, 24);
+        if (isBlockedScene) baseNodeColor = Color{220, 90, 90, 255};
+        const ImU32 nodeColor = IM_COL32(baseNodeColor.r, baseNodeColor.g, baseNodeColor.b, baseNodeColor.a);
         drawList->AddCircleFilled(nodePos, 8.0f, nodeColor);
         drawList->AddCircle(nodePos, 8.0f, IM_COL32(245, 250, 255, 255), 0, 2.0f);
         drawList->AddText(ImVec2(nodePos.x + 10.0f, nodePos.y - 7.0f), IM_COL32(235, 240, 255, 255),

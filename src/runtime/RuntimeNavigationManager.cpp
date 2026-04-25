@@ -71,18 +71,24 @@ void RuntimeNavigationManager::activateSelectedRoute(RouteRuntimeState& state) c
 
 void RuntimeNavigationManager::clearRoute(RouteRuntimeState& state, bool keepCompletedFlag) const {
     state.routeActive = false;
-    state.routeTargetNodeId.clear();
-    state.routeProgressPct = 0.0f;
-    state.routeTravelElapsed = 0.0f;
+    if (!keepCompletedFlag) {
+        state.routeTargetNodeId.clear();
+        state.routeProgressPct = 0.0f;
+        state.routeTravelElapsed = 0.0f;
+    }
     if (!keepCompletedFlag) {
         state.routeTravelCompleted = false;
     }
     state.routeLegStartDistance = 0.0f;
     state.routeLegSceneId.clear();
     state.routeLegNextSceneId.clear();
-    state.routeScenePlan.clear();
+    if (!keepCompletedFlag) {
+        state.routeScenePlan.clear();
+    }
     state.routePathPoints.clear();
-    state.routeNextHint.clear();
+    if (!keepCompletedFlag) {
+        state.routeNextHint.clear();
+    }
     state.routePathScene.clear();
     state.routeRefreshCooldown = 0.0f;
 }
@@ -117,7 +123,7 @@ void RuntimeNavigationManager::refreshRoute(RouteRuntimeState& state,
 
     state.routeRefreshCooldown -= dt;
     const bool mobilityChanged = state.routeMobilityReduced != scenarioManager.isMobilityReduced();
-    const bool movedEnough = WalkablePathService::distanceBetween(playerPos, state.routeAnchorPos) >= 28.0f;
+    const bool movedEnough = WalkablePathService::distanceBetween(playerPos, state.routeAnchorPos) >= 6.0f;
     const bool sceneChanged = state.routePathScene != currentSceneName;
 
     if (state.routeRefreshCooldown > 0.0f && !mobilityChanged && !movedEnough && !sceneChanged) {
@@ -129,11 +135,28 @@ void RuntimeNavigationManager::refreshRoute(RouteRuntimeState& state,
     state.routeAnchorPos = playerPos;
     state.routePathScene = currentSceneName;
     state.routePathPoints.clear();
-    state.routeRefreshCooldown = 0.20f;
+    state.routeRefreshCooldown = 0.05f;
 
     const PathResult routedPath =
         scenarioManager.buildProfiledPath(graph, currentSceneId, state.routeTargetNodeId);
-    state.routeScenePlan = routedPath.path;
+    if (routedPath.found && !routedPath.path.empty()) {
+        if (state.routeScenePlan.empty()) {
+            state.routeScenePlan = routedPath.path;
+        } else {
+            const auto currentInStored =
+                std::find(state.routeScenePlan.begin(), state.routeScenePlan.end(), currentSceneId);
+            if (currentInStored != state.routeScenePlan.end()) {
+                std::vector<std::string> mergedPlan(state.routeScenePlan.begin(),
+                                                    std::next(currentInStored));
+                mergedPlan.insert(mergedPlan.end(),
+                                  std::next(routedPath.path.begin()),
+                                  routedPath.path.end());
+                state.routeScenePlan = std::move(mergedPlan);
+            } else {
+                state.routeScenePlan = routedPath.path;
+            }
+        }
+    }
 
     tabState.lastPath = routedPath;
     tabState.hasPath = routedPath.found;
@@ -201,10 +224,14 @@ void RuntimeNavigationManager::refreshRoute(RouteRuntimeState& state,
         const float localProgress =
             std::clamp(1.0f - (currentToGoal / state.routeLegStartDistance), 0.0f, 1.0f);
         const int totalLegs = std::max(1, static_cast<int>(state.routeScenePlan.size()) - 1);
-        const int completedLegs = std::max(0, static_cast<int>(std::distance(state.routeScenePlan.begin(), currentIt)));
+        const int completedLegs =
+            currentIt != state.routeScenePlan.end()
+                ? std::max(0, static_cast<int>(std::distance(state.routeScenePlan.begin(), currentIt)))
+                : 0;
         const float overallProgress =
             ((static_cast<float>(completedLegs) + localProgress) / static_cast<float>(totalLegs)) * 100.0f;
-        state.routeProgressPct = std::clamp(overallProgress, 0.0f, 99.9f);
+        state.routeProgressPct = std::max(state.routeProgressPct,
+                                          std::clamp(overallProgress, 0.0f, 99.9f));
         state.routeNextHint = "Dirigete a " + catalog_.displayLabel(nextNode);
         return;
     }
@@ -256,7 +283,8 @@ void RuntimeNavigationManager::refreshRoute(RouteRuntimeState& state,
 
     const float overallProgress =
         ((static_cast<float>(completedLegs) + localProgress) / static_cast<float>(totalLegs)) * 100.0f;
-    state.routeProgressPct = std::clamp(overallProgress, 0.0f, 99.9f);
+    state.routeProgressPct = std::max(state.routeProgressPct,
+                                      std::clamp(overallProgress, 0.0f, 99.9f));
 }
 
 std::vector<Vector2> RuntimeNavigationManager::buildOverlayPathForScene(

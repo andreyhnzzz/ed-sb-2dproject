@@ -4,6 +4,7 @@
 #include "services/WalkablePathService.h"
 
 #include <algorithm>
+#include <cmath>
 
 GameController::GameController(Config config) : config_(config) {
     camera_.offset = {0.0f, 0.0f};
@@ -13,7 +14,6 @@ GameController::GameController(Config config) : config_(config) {
 }
 
 void GameController::update(float dt, const InputState& input, MapRenderData& mapData) {
-    playerAnim_.direction = input.facingDirection;
     sprinting_ = input.sprinting;
     const float currentSpeed = config_.baseSpeed * (sprinting_ ? config_.sprintMultiplier : 1.0f);
 
@@ -37,6 +37,14 @@ void GameController::update(float dt, const InputState& input, MapRenderData& ma
 
     isMoving_ = (input.moveX != 0.0f || input.moveY != 0.0f);
     if (isMoving_) {
+        // Keep the last real movement direction for idle facing.
+        // Mapping aligned with the current spritesheet ordering:
+        // W->1, S->3, A->2, D->0.
+        if (std::fabs(input.moveX) >= std::fabs(input.moveY)) {
+            playerAnim_.direction = (input.moveX < 0.0f) ? 2 : 0;  // left / right
+        } else {
+            playerAnim_.direction = (input.moveY < 0.0f) ? 1 : 3;  // up / down
+        }
         playerAnim_.timer += dt;
         const float frameStep = sprinting_ ? (1.0f / 16.0f) : (1.0f / 12.0f);
         if (playerAnim_.timer >= frameStep) {
