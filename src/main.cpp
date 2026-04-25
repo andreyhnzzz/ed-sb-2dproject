@@ -34,6 +34,7 @@
 #include "ui/TabManager.h"
 
 namespace fs = std::filesystem;
+static constexpr double kPixelsToMeters = 0.10;
 
 struct VisualPoiNode {
     std::string sceneId;
@@ -101,6 +102,17 @@ static std::string buildSelectionCriterion(StudentType studentType, bool mobilit
         return "Pasa obligatoriamente por al menos un POI";
     }
     return "Ruta mas corta";
+}
+
+static Vector2 playerFrontAnchor(const Vector2& playerPos, int direction) {
+    constexpr float kOffset = 14.0f;
+    switch (direction) {
+        case 1: return Vector2{playerPos.x - kOffset, playerPos.y - 6.0f}; // left
+        case 2: return Vector2{playerPos.x + kOffset, playerPos.y - 6.0f}; // right
+        case 3: return Vector2{playerPos.x, playerPos.y - kOffset};        // up
+        case 0:
+        default: return Vector2{playerPos.x, playerPos.y + kOffset};       // down
+    }
 }
 
 static PathResult mergeProfiledSegments(const std::vector<PathResult>& segments) {
@@ -277,7 +289,9 @@ static void drawCurrentSceneNavigationOverlay(
         DrawCircleLines(static_cast<int>(targetPos.x), static_cast<int>(targetPos.y), 6.0f, BLACK);
 
         if (edge) {
-            const std::string weightLabel = TextFormat("%.1f m", edge->base_weight);
+            const double localMeters =
+                static_cast<double>(WalkablePathService::distanceBetween(scenePos, targetPos)) * kPixelsToMeters;
+            const std::string weightLabel = TextFormat("%.1f m", localMeters);
             const int textX = static_cast<int>((scenePos.x + targetPos.x) * 0.5f);
             const int textY = static_cast<int>((scenePos.y + targetPos.y) * 0.5f) - 18;
             DrawRectangle(textX - 4, textY - 2, MeasureText(weightLabel.c_str(), 12) + 8, 16,
@@ -305,8 +319,13 @@ static void drawCurrentSceneNavigationOverlay(
         DrawCircleV(poiPos, 7.0f, Color{255, 180, 50, 235});
         DrawCircleLines(static_cast<int>(poiPos.x), static_cast<int>(poiPos.y), 7.0f,
                         Color{255, 250, 210, 240});
-        DrawText(zone.name.c_str(), static_cast<int>(poiPos.x) + 8, static_cast<int>(poiPos.y) - 8,
-                 12, Color{255, 228, 150, 240});
+
+        // Keep POI labels close to each zone title area (top-left of its first rect),
+        // so they don't drift to the center on large floor zones.
+        const Rectangle& titleRect = zone.rects.front();
+        const int poiLabelX = static_cast<int>(titleRect.x) + 6;
+        const int poiLabelY = static_cast<int>(titleRect.y) + 24;
+        DrawText(zone.name.c_str(), poiLabelX, poiLabelY, 12, Color{255, 228, 150, 245});
     }
 
     const Color nodeColor = nodeBlocked ? Color{230, 90, 90, 240} : Color{85, 160, 255, 240};
@@ -1027,7 +1046,7 @@ int main(int argc, char* argv[]) {
     DataManager dataManager;
     CampusGraph graph;
     try {
-        graph = dataManager.loadCampusGraph(path, sceneToTmjPath, interestZonesPath);
+        graph = dataManager.loadCampusGraph(path, sceneToTmjPath, interestZonesPath, kPixelsToMeters);
         const fs::path generatedGraphPath = fs::path(path).parent_path() / "campus.generated.json";
         dataManager.exportResolvedGraph(graph, generatedGraphPath.string());
     } catch (const std::exception& ex) {
@@ -1439,7 +1458,7 @@ int main(int argc, char* argv[]) {
                     }
 
                     const float localProgress = std::clamp(1.0f - (currentToGoal / routeLegStartDistance), 0.0f, 1.0f);
-                    routeProgressPct = std::max(routeProgressPct, localProgress * 100.0f);
+                    routeProgressPct = std::clamp(localProgress * 100.0f, 0.0f, 100.0f);
                     routePathPoints = WalkablePathService::buildWalkablePath(mapData, playerPos, goal);
                     routeNextHint = currentToGoal <= 24.0f
                         ? "Destination reached"
@@ -1507,7 +1526,7 @@ int main(int argc, char* argv[]) {
 
                     const float overallProgress =
                         ((static_cast<float>(completedLegs) + localProgress) / static_cast<float>(totalLegs)) * 100.0f;
-                    routeProgressPct = std::max(routeProgressPct, std::clamp(overallProgress, 0.0f, 99.9f));
+                    routeProgressPct = std::clamp(overallProgress, 0.0f, 99.9f);
                 }
             }
         }
@@ -1621,8 +1640,10 @@ int main(int argc, char* argv[]) {
 
             if (routePathScene == currentSceneName && routePathPoints.size() >= 2) {
                 const float pulse = 2.8f + std::sin(static_cast<float>(GetTime()) * 3.0f) * 0.8f;
+                const Vector2 routeStart = playerFrontAnchor(playerPos, playerAnim.direction);
                 for (size_t i = 1; i < routePathPoints.size(); ++i) {
-                    DrawLineEx(routePathPoints[i - 1], routePathPoints[i], pulse,
+                    const Vector2 a = (i == 1) ? routeStart : routePathPoints[i - 1];
+                    DrawLineEx(a, routePathPoints[i], pulse,
                                Color{255, 210, 70, 235});
                 }
             }
@@ -1750,8 +1771,10 @@ int main(int argc, char* argv[]) {
             }
 
             if (routeActive && routePathScene == currentSceneName && routePathPoints.size() >= 2) {
+                const Vector2 routeStart = playerFrontAnchor(playerPos, playerAnim.direction);
                 for (size_t i = 1; i < routePathPoints.size(); ++i) {
-                    const Vector2 a = clampMiniPoint(worldToMini(routePathPoints[i - 1]));
+                    const Vector2 worldA = (i == 1) ? routeStart : routePathPoints[i - 1];
+                    const Vector2 a = clampMiniPoint(worldToMini(worldA));
                     const Vector2 b = clampMiniPoint(worldToMini(routePathPoints[i]));
                     DrawLineEx(a, b, 3.0f, Color{255, 210, 60, 240});
                 }
