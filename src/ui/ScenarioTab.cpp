@@ -18,7 +18,7 @@ ScenarioTab::ScenarioTab(ScenarioManager& scenario, CampusMapView* mapView, QWid
     auto* grpST = new QGroupBox("Tipo de Estudiante");
     auto* stLayout = new QVBoxLayout(grpST);
     rb_new_ = new QRadioButton("Estudiante Nuevo (rutas más simples)");
-    rb_regular_ = new QRadioButton("Estudiante Regular");
+    rb_regular_ = new QRadioButton("Estudiante Veterano");
     rb_regular_->setChecked(true);
     stLayout->addWidget(rb_new_);
     stLayout->addWidget(rb_regular_);
@@ -37,13 +37,13 @@ ScenarioTab::ScenarioTab(ScenarioManager& scenario, CampusMapView* mapView, QWid
 
 void ScenarioTab::onApply() {
     scenario_.setMobilityReduced(chk_mr_->isChecked());
-    scenario_.setStudentType(rb_new_->isChecked() ? StudentType::NEW_STUDENT : StudentType::REGULAR_STUDENT);
+    scenario_.setStudentType(rb_new_->isChecked() ? StudentType::NEW_STUDENT : StudentType::VETERAN_STUDENT);
 
     if (mapView_) mapView_->setMobilityMode(chk_mr_->isChecked());
 
     QString msg = "Escenario aplicado:\n";
     msg += chk_mr_->isChecked() ? "Movilidad reducida ACTIVADA\n" : "Movilidad normal\n";
-    msg += rb_new_->isChecked() ? "Estudiante Nuevo" : "Estudiante Regular";
+    msg += rb_new_->isChecked() ? "Estudiante Nuevo" : "Estudiante Veterano";
     lbl_info_->setText(msg);
     lbl_info_->setStyleSheet("color: #2980B9; font-style: italic;");
 }

@@ -1,6 +1,7 @@
 #include "ScenarioManager.h"
 #include <algorithm>
 #include <cctype>
+#include <limits>
 
 ScenarioManager::ScenarioManager() = default;
 
@@ -14,11 +15,50 @@ static std::string toLower(std::string s) {
     return s;
 }
 
-static bool containsAll(const std::string& haystack, const std::vector<std::string>& needles) {
-    for (const auto& needle : needles) {
-        if (haystack.find(needle) == std::string::npos) return false;
+static std::vector<std::string> collectPoiNodeIds(const CampusGraph& graph) {
+    std::vector<std::string> poiIds;
+    for (const auto& nodeId : graph.nodeIds()) {
+        if (!graph.hasNode(nodeId)) continue;
+        const auto& node = graph.getNode(nodeId);
+        const std::string loweredType = toLower(node.type);
+        if (loweredType == "poi" || loweredType.find("poi") != std::string::npos) {
+            poiIds.push_back(nodeId);
+        }
     }
-    return true;
+    return poiIds;
+}
+
+static std::string chooseMandatoryPoi(const CampusGraph& graph,
+                                      const std::string& origin,
+                                      const std::string& destination,
+                                      bool mobilityReduced) {
+    const auto poiIds = collectPoiNodeIds(graph);
+    if (poiIds.empty()) return "";
+
+    if (std::find(poiIds.begin(), poiIds.end(), origin) != poiIds.end()) return origin;
+    if (std::find(poiIds.begin(), poiIds.end(), destination) != poiIds.end()) return destination;
+
+    std::string bestPoi;
+    double bestCost = std::numeric_limits<double>::infinity();
+    for (const auto& poiId : poiIds) {
+        if (poiId == origin || poiId == destination) continue;
+        const PathResult toPoi = Algorithms::findPath(graph, origin, poiId, mobilityReduced, false);
+        const PathResult fromPoi = Algorithms::findPath(graph, poiId, destination, mobilityReduced, false);
+        if (!toPoi.found || !fromPoi.found) continue;
+
+        const double candidate = toPoi.total_weight + fromPoi.total_weight;
+        if (candidate < bestCost) {
+            bestCost = candidate;
+            bestPoi = poiId;
+        }
+    }
+
+    if (!bestPoi.empty()) return bestPoi;
+    return poiIds.front();
+}
+
+bool ScenarioManager::isMobilityReduced() const {
+    return mobility_reduced_ || student_type_ == StudentType::DISABLED_STUDENT;
 }
 
 std::vector<std::string> ScenarioManager::applyProfile(const CampusGraph& graph,
@@ -29,13 +69,12 @@ std::vector<std::string> ScenarioManager::applyProfile(const CampusGraph& graph,
     waypoints.push_back(origin);
 
     if (student_type_ == StudentType::NEW_STUDENT) {
-        constexpr const char* mandatoryStops[] = {"biblio", "interiorcafeteria"};
-        for (const char* stop : mandatoryStops) {
-            if (!graph.hasNode(stop)) continue;
-            if (origin == stop || destination == stop) continue;
-            if (std::find(waypoints.begin(), waypoints.end(), stop) == waypoints.end()) {
-                waypoints.push_back(stop);
-            }
+        const std::string mandatoryPoi = chooseMandatoryPoi(
+            graph, origin, destination, isMobilityReduced());
+        if (!mandatoryPoi.empty() &&
+            mandatoryPoi != origin &&
+            mandatoryPoi != destination) {
+            waypoints.push_back(mandatoryPoi);
         }
     }
 
@@ -55,7 +94,7 @@ PathResult ScenarioManager::buildProfiledPath(const CampusGraph& graph,
     merged.found = true;
     for (size_t i = 1; i < waypoints.size(); ++i) {
         const PathResult segment = Algorithms::findPath(
-            graph, waypoints[i - 1], waypoints[i], mobility_reduced_, false);
+            graph, waypoints[i - 1], waypoints[i], isMobilityReduced(), false);
         if (!segment.found || segment.path.empty()) {
             return {};
         }

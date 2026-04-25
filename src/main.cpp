@@ -94,12 +94,13 @@ static int countProfileDiscardedEdges(const CampusGraph& graph, bool mobilityRed
 }
 
 static std::string buildSelectionCriterion(StudentType studentType, bool mobilityReduced) {
-    if (mobilityReduced && studentType == StudentType::NEW_STUDENT) {
-        return "Evita gradas y pasa por referencias conocidas";
+    if (studentType == StudentType::DISABLED_STUDENT || mobilityReduced) {
+        return "Bloquea todas las escaleras";
     }
-    if (mobilityReduced) return "Prioriza accesibilidad y evita gradas";
-    if (studentType == StudentType::NEW_STUDENT) return "Pasa por referencias conocidas";
-    return "Prioriza distancia minima";
+    if (studentType == StudentType::NEW_STUDENT) {
+        return "Pasa obligatoriamente por al menos un POI";
+    }
+    return "Ruta mas corta";
 }
 
 static PathResult mergeProfiledSegments(const std::vector<PathResult>& segments) {
@@ -353,18 +354,27 @@ static void renderAcademicRuntimeOverlay(
     ImGui::TextDisabled("(overlay principal)");
 
     ImGui::Checkbox("Resaltar POIs (TAB)", &showInterestZones);
+    int studentProfile = 1;
+    if (scenarioManager.getStudentType() == StudentType::NEW_STUDENT) studentProfile = 0;
+    if (scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT) studentProfile = 2;
+
     bool mobilityReduced = scenarioManager.isMobilityReduced();
-    if (ImGui::Checkbox("Escenario movilidad reducida", &mobilityReduced)) {
+    if (studentProfile == 2) {
+        ImGui::TextDisabled("Movilidad reducida forzada por perfil Discapacitado");
+    } else if (ImGui::Checkbox("Escenario movilidad reducida", &mobilityReduced)) {
         scenarioManager.setMobilityReduced(mobilityReduced);
     }
 
-    int studentProfile = scenarioManager.getStudentType() == StudentType::NEW_STUDENT ? 0 : 1;
     if (ImGui::RadioButton("Estudiante nuevo", studentProfile == 0)) {
         scenarioManager.setStudentType(StudentType::NEW_STUDENT);
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("Estudiante regular", studentProfile == 1)) {
-        scenarioManager.setStudentType(StudentType::REGULAR_STUDENT);
+    if (ImGui::RadioButton("Estudiante veterano", studentProfile == 1)) {
+        scenarioManager.setStudentType(StudentType::VETERAN_STUDENT);
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Discapacitado", studentProfile == 2)) {
+        scenarioManager.setStudentType(StudentType::DISABLED_STUDENT);
     }
 
     comboSelectNode("Inicio manual DFS/BFS", nodeIds, tabState.startId, sizeof(tabState.startId));
@@ -436,8 +446,10 @@ static void renderAcademicRuntimeOverlay(
     ImGui::Text("Escena actual: %s", sceneDisplayName(StringUtils::toLowerCopy(currentSceneName)).c_str());
     ImGui::Text("Perfil activo: %s",
                 scenarioManager.getStudentType() == StudentType::NEW_STUDENT
-                    ? (scenarioManager.isMobilityReduced() ? "Nuevo + Movilidad Reducida" : "Nuevo")
-                    : (scenarioManager.isMobilityReduced() ? "Regular + Movilidad Reducida" : "Regular"));
+                    ? "Nuevo"
+                    : (scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT
+                        ? "Discapacitado"
+                        : "Veterano"));
     ImGui::TextWrapped("Criterio aplicado: %s",
                        buildSelectionCriterion(scenarioManager.getStudentType(),
                                                scenarioManager.isMobilityReduced()).c_str());
@@ -623,6 +635,54 @@ static bool drawRayButton(const Rectangle& r, const char* label, int fontSize,
     return pressed;
 }
 
+static const char* studentTypeToLabel(StudentType studentType) {
+    switch (studentType) {
+        case StudentType::NEW_STUDENT: return "New";
+        case StudentType::DISABLED_STUDENT: return "Disabled";
+        case StudentType::VETERAN_STUDENT:
+        default: return "Veteran";
+    }
+}
+
+static void drawRaylibNavigationOverlayMenu(bool showNavigationGraph,
+                                            bool infoMenuOpen,
+                                            const std::string& currentSceneName,
+                                            bool mobilityReduced,
+                                            StudentType studentType,
+                                            bool routeActive,
+                                            float routeProgressPct,
+                                            bool resilienceConnected,
+                                            const TabManagerState& state,
+                                            const std::vector<std::string>& blockedNodes) {
+    if (!showNavigationGraph || infoMenuOpen) return;
+
+    const int x = 16;
+    const int y = 64;
+    const int w = 440;
+    const int h = 230;
+
+    DrawRectangle(x, y, w, h, Color{6, 10, 18, 226});
+    DrawRectangleLines(x, y, w, h, Color{70, 120, 200, 235});
+
+    int cy = y + 12;
+    DrawText("Navigation Graph", x + 12, cy, 22, Color{235, 242, 255, 245});
+    cy += 26;
+    DrawLine(x + 10, cy, x + w - 10, cy, Color{56, 92, 150, 220});
+    cy += 10;
+
+    DrawText(TextFormat("Scene: %s", currentSceneName.c_str()), x + 12, cy, 21, RAYWHITE); cy += 22;
+    DrawText(TextFormat("Profile: %s", studentTypeToLabel(studentType)), x + 12, cy, 21, RAYWHITE); cy += 22;
+    DrawText(TextFormat("Mobility reduced: %s", mobilityReduced ? "ON" : "OFF"), x + 12, cy, 21, RAYWHITE); cy += 22;
+    DrawText(TextFormat("Connectivity: %s", resilienceConnected ? "connected" : "fragmented"),
+             x + 12, cy, 21, resilienceConnected ? Color{150, 238, 180, 255} : Color{255, 160, 160, 255}); cy += 22;
+    DrawText(TextFormat("Route: %s", routeActive ? "active" : "inactive"), x + 12, cy, 21, RAYWHITE); cy += 22;
+    DrawText(TextFormat("Route progress: %.1f%%", routeProgressPct), x + 12, cy, 21, RAYWHITE); cy += 22;
+    DrawText(TextFormat("Blocked nodes: %d", static_cast<int>(blockedNodes.size())), x + 12, cy, 21, Color{255, 224, 170, 255}); cy += 22;
+    if (state.hasPath) {
+        DrawText(TextFormat("Last path weight: %.2f", state.lastPath.total_weight), x + 12, cy, 21, Color{200, 225, 255, 255});
+    }
+}
+
 static void drawRaylibInfoMenu(
     bool& isOpen,
     int screenWidth,
@@ -797,7 +857,10 @@ static void drawRaylibInfoMenu(
     DrawText(TextFormat("Triggers: %s", showTriggers ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     DrawText(TextFormat("Interest zones: %s", showInterestZones ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
     DrawText(TextFormat("Reduced mobility: %s", mobilityReduced ? "ON" : "OFF"), rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(22);
-    DrawText(TextFormat("Student profile: %s", studentType == StudentType::NEW_STUDENT ? "New" : "Regular"),
+    DrawText(TextFormat("Student profile: %s",
+                        studentType == StudentType::NEW_STUDENT
+                            ? "New"
+                            : (studentType == StudentType::DISABLED_STUDENT ? "Disabled" : "Veteran")),
              rightX + sectionPad, yRight, bodyMutedFont, muted); yRight += px(26);
 
     Rectangle graphToggleBtn{static_cast<float>(rightX + sectionPad), static_cast<float>(yRight),
@@ -964,7 +1027,7 @@ int main(int argc, char* argv[]) {
     DataManager dataManager;
     CampusGraph graph;
     try {
-        graph = dataManager.loadCampusGraph(path, sceneToTmjPath);
+        graph = dataManager.loadCampusGraph(path, sceneToTmjPath, interestZonesPath);
         const fs::path generatedGraphPath = fs::path(path).parent_path() / "campus.generated.json";
         dataManager.exportResolvedGraph(graph, generatedGraphPath.string());
     } catch (const std::exception& ex) {
@@ -1340,7 +1403,7 @@ int main(int argc, char* argv[]) {
         camera.target = playerPos;
         clampCameraTarget(camera, mapData, screenWidth, screenHeight);
 
-        if (routeActive) {
+        if (routeActive && !routeTravelCompleted) {
             routeRefreshCooldown -= dt;
             const bool mobilityChanged = routeMobilityReduced != scenario_manager.isMobilityReduced();
             const bool movedEnough = WalkablePathService::distanceBetween(playerPos, routeAnchorPos) >= 28.0f;
@@ -1384,6 +1447,9 @@ int main(int argc, char* argv[]) {
                     if (currentToGoal <= 24.0f) {
                         routeTravelCompleted = true;
                         routeProgressPct = 100.0f;
+                        routePathPoints.clear();
+                        routePathScene.clear();
+                        routeScenePlan.clear();
                     }
                 } else if (!routedPath.found || routeScenePlan.empty()) {
                     routeNextHint = "No available connection";
@@ -1735,6 +1801,18 @@ int main(int argc, char* argv[]) {
         DrawText("M: Menu", 16, 12, 20, Color{220, 230, 255, 220});
         DrawText("TAB: POIs", 16, 34, 18, Color{255, 215, 120, 220});
 
+        drawRaylibNavigationOverlayMenu(
+            showNavigationGraph,
+            infoMenuOpen,
+            currentSceneName,
+            scenario_manager.isMobilityReduced(),
+            scenario_manager.getStudentType(),
+            routeActive,
+            routeProgressPct,
+            resilience_service.isStillConnected(),
+            tabState,
+            resilience_service.getBlockedNodes());
+
         drawRaylibInfoMenu(
             infoMenuOpen,
             screenWidth,
@@ -1772,29 +1850,34 @@ int main(int argc, char* argv[]) {
             resilience_service.getBlockedNodes(),
             resilience_service.isStillConnected());
 
-        rlImGuiBegin();
-
-        renderAcademicRuntimeOverlay(
-            showNavigationGraph,
-            showInterestZones,
-            tabState,
-            nav_service,
-            scenario_manager,
-            complexity_analyzer,
-            resilience_service,
-            graph,
-            sceneDataMap,
-            routeScenes,
-            sceneDisplayName,
-            currentSceneName,
-            routeActive,
-            routeScenePlan);
-
-        // Floor-elevator menu (shown when player presses E near an elevator)
         if (!infoMenuOpen) {
+            rlImGuiBegin();
+
+            // Keep ImGui only for the floor selector. The graph/navigation menu
+            // is now handled through the Raylib info menu for font legibility.
+            constexpr bool kEnableLegacyImGuiGraphMenu = false;
+            if (kEnableLegacyImGuiGraphMenu) {
+                renderAcademicRuntimeOverlay(
+                    showNavigationGraph,
+                    showInterestZones,
+                    tabState,
+                    nav_service,
+                    scenario_manager,
+                    complexity_analyzer,
+                    resilience_service,
+                    graph,
+                    sceneDataMap,
+                    routeScenes,
+                    sceneDisplayName,
+                    currentSceneName,
+                    routeActive,
+                    routeScenePlan);
+            }
+
+            // Floor-elevator menu (shown when player presses E near an elevator)
             transitions.drawFloorMenu();
+            rlImGuiEnd();
         }
-        rlImGuiEnd();
 
         EndDrawing();
 

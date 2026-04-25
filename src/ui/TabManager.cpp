@@ -239,18 +239,27 @@ static void renderAcademicControlPanelContent(
     ImGui::Checkbox("Interes", &showInterestZones);
     ImGui::Separator();
 
+    int studentType = 1;
+    if (scenarioManager.getStudentType() == StudentType::NEW_STUDENT) studentType = 0;
+    if (scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT) studentType = 2;
+
     bool mobilityReduced = scenarioManager.isMobilityReduced();
-    if (ImGui::Checkbox("Reduced mobility", &mobilityReduced)) {
+    if (studentType == 2) {
+        ImGui::TextDisabled("Reduced mobility forced by Disabled profile");
+    } else if (ImGui::Checkbox("Reduced mobility", &mobilityReduced)) {
         scenarioManager.setMobilityReduced(mobilityReduced);
     }
 
-    int studentType = scenarioManager.getStudentType() == StudentType::NEW_STUDENT ? 0 : 1;
     if (ImGui::RadioButton("New student", studentType == 0)) {
         scenarioManager.setStudentType(StudentType::NEW_STUDENT);
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("Regular student", studentType == 1)) {
-        scenarioManager.setStudentType(StudentType::REGULAR_STUDENT);
+    if (ImGui::RadioButton("Veteran student", studentType == 1)) {
+        scenarioManager.setStudentType(StudentType::VETERAN_STUDENT);
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Disabled student", studentType == 2)) {
+        scenarioManager.setStudentType(StudentType::DISABLED_STUDENT);
     }
 
     ImGui::InputText("Origin", state.startId, sizeof(state.startId));
@@ -324,7 +333,7 @@ static void renderAcademicControlPanelContent(
             const auto prof = scenarioManager.applyProfile(graph, state.startId, state.endId);
             ImGui::Text("Applied profile:");
             for (const auto& step : prof) ImGui::BulletText("%s", step.c_str());
-            ImGui::TextWrapped("If student type is New, route is forced through Library and Cafeteria/Dining when compatible nodes exist.");
+            ImGui::TextWrapped("Profiles: New = must pass a POI, Veteran = shortest route, Disabled = stairs blocked.");
             ImGui::EndTabItem();
         }
 

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-enum class StudentType { NEW_STUDENT, REGULAR_STUDENT };
+enum class StudentType { NEW_STUDENT, VETERAN_STUDENT, DISABLED_STUDENT };
 
 class ScenarioManager {
 public:
@@ -19,10 +19,10 @@ public:
                                  const std::string& origin,
                                  const std::string& destination) const;
 
-    bool isMobilityReduced() const { return mobility_reduced_; }
+    bool isMobilityReduced() const;
     StudentType getStudentType() const { return student_type_; }
 
 private:
     bool mobility_reduced_{false};
-    StudentType student_type_{StudentType::REGULAR_STUDENT};
+    StudentType student_type_{StudentType::VETERAN_STUDENT};
 };

@@ -10,6 +10,7 @@ public:
     CampusGraph loadCampusGraph(
         const std::string& configPath,
         const std::unordered_map<std::string, std::string>& sceneToTmjPath,
+        const std::string& interestZonesPath = "",
         double pixelsToMeters = 0.10) const;
 
     void exportResolvedGraph(const CampusGraph& graph, const std::string& outputPath) const;

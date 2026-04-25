@@ -4,12 +4,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <vector>
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 
 namespace {
 std::string toLower(std::string value) {
@@ -54,6 +57,51 @@ bool isStairType(const std::string& type) {
     const std::string lowered = toLower(type);
     return lowered.find("escalera") != std::string::npos || lowered.find("stair") != std::string::npos;
 }
+
+std::string sanitizeForId(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (unsigned char ch : value) {
+        if (std::isalnum(ch)) {
+            out.push_back(static_cast<char>(std::tolower(ch)));
+        } else if (ch == ' ' || ch == '_' || ch == '-') {
+            if (out.empty() || out.back() == '_') continue;
+            out.push_back('_');
+        }
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out.empty() ? "zone" : out;
+}
+
+bool computeZoneCenter(const json& zoneDef, Vector2& outCenter) {
+    if (!zoneDef.contains("rects") || !zoneDef["rects"].is_array() || zoneDef["rects"].empty()) {
+        return false;
+    }
+
+    double accX = 0.0;
+    double accY = 0.0;
+    int count = 0;
+    for (const auto& rect : zoneDef["rects"]) {
+        if (!rect.contains("x") || !rect.contains("y") ||
+            !rect.contains("w") || !rect.contains("h")) {
+            continue;
+        }
+        const double x = rect["x"].get<double>();
+        const double y = rect["y"].get<double>();
+        const double w = rect["w"].get<double>();
+        const double h = rect["h"].get<double>();
+        accX += x + (w * 0.5);
+        accY += y + (h * 0.5);
+        ++count;
+    }
+
+    if (count == 0) return false;
+    outCenter = {
+        static_cast<float>(accX / static_cast<double>(count)),
+        static_cast<float>(accY / static_cast<double>(count))
+    };
+    return true;
+}
 } // namespace
 
 std::unordered_map<std::string, std::unordered_map<std::string, Vector2>>
@@ -69,6 +117,7 @@ DataManager::loadSpawnCache(
 CampusGraph DataManager::loadCampusGraph(
     const std::string& configPath,
     const std::unordered_map<std::string, std::string>& sceneToTmjPath,
+    const std::string& interestZonesPath,
     double pixelsToMeters) const {
     std::ifstream input(configPath);
     if (!input.is_open()) {
@@ -83,6 +132,7 @@ CampusGraph DataManager::loadCampusGraph(
 
     const auto spawnCache = loadSpawnCache(sceneToTmjPath);
     CampusGraph graph;
+    std::unordered_map<std::string, std::string> sceneToMainNode;
     for (const auto& jn : data["nodes"]) {
         Node node;
         node.id = toLower(jn.at("id").get<std::string>());
@@ -95,6 +145,9 @@ CampusGraph DataManager::loadCampusGraph(
         node.x = pos.x;
         node.y = pos.y;
         graph.addNode(node);
+        if (!scene.empty() && !sceneToMainNode.count(scene)) {
+            sceneToMainNode[scene] = node.id;
+        }
     }
 
     for (const auto& je : data["edges"]) {
@@ -133,6 +186,83 @@ CampusGraph DataManager::loadCampusGraph(
             ? std::numeric_limits<double>::infinity()
             : distanceMeters;
         graph.addEdge(edge);
+    }
+
+    std::string resolvedInterestZonesPath = interestZonesPath;
+    if (resolvedInterestZonesPath.empty()) {
+        const fs::path configDir = fs::path(configPath).parent_path();
+        const std::vector<fs::path> candidates = {
+            configDir / "assets" / "interest_zones.json",
+            configDir / ".." / "assets" / "interest_zones.json",
+            fs::path("assets/interest_zones.json")
+        };
+        for (const auto& candidate : candidates) {
+            if (fs::exists(candidate)) {
+                resolvedInterestZonesPath = candidate.string();
+                break;
+            }
+        }
+    }
+
+    if (!resolvedInterestZonesPath.empty()) {
+        std::ifstream zonesInput(resolvedInterestZonesPath);
+        if (zonesInput.is_open()) {
+            json zonesData = json::parse(zonesInput, nullptr, false);
+            if (!zonesData.is_discarded() &&
+                zonesData.contains("scenes") &&
+                zonesData["scenes"].is_object()) {
+                for (auto it = zonesData["scenes"].begin(); it != zonesData["scenes"].end(); ++it) {
+                    const std::string sceneId = toLower(it.key());
+                    const auto sceneNodeIt = sceneToMainNode.find(sceneId);
+                    if (sceneNodeIt == sceneToMainNode.end()) continue;
+                    if (!it.value().is_array()) continue;
+
+                    const std::string& anchorNodeId = sceneNodeIt->second;
+                    const Node& anchorNode = graph.getNode(anchorNodeId);
+                    int zoneIndex = 0;
+                    for (const auto& zone : it.value()) {
+                        if (!zone.is_object()) continue;
+                        Vector2 center{};
+                        if (!computeZoneCenter(zone, center)) continue;
+
+                        const std::string zoneName = zone.value("name", "POI");
+                        const std::string zoneSlug = sanitizeForId(zoneName);
+                        std::string poiNodeId = "poi_" + sceneId + "_" + zoneSlug;
+                        if (zoneIndex > 0) {
+                            poiNodeId += "_" + std::to_string(zoneIndex + 1);
+                        }
+                        ++zoneIndex;
+
+                        // Avoid accidental id collisions with pre-existing nodes.
+                        while (graph.hasNode(poiNodeId)) {
+                            poiNodeId += "_x";
+                        }
+
+                        Node poiNode;
+                        poiNode.id = poiNodeId;
+                        poiNode.name = zoneName;
+                        poiNode.type = "POI";
+                        poiNode.x = center.x;
+                        poiNode.y = center.y;
+                        graph.addNode(poiNode);
+
+                        const Vector2 anchorPos{
+                            static_cast<float>(anchorNode.x),
+                            static_cast<float>(anchorNode.y)
+                        };
+                        Edge poiEdge;
+                        poiEdge.id = "edge_" + anchorNodeId + "_" + poiNodeId;
+                        poiEdge.from = anchorNodeId;
+                        poiEdge.to = poiNodeId;
+                        poiEdge.type = "POI";
+                        poiEdge.base_weight = euclideanMeters(anchorPos, center, pixelsToMeters);
+                        poiEdge.mobility_weight = poiEdge.base_weight;
+                        poiEdge.blocked_for_mr = false;
+                        graph.addEdge(poiEdge);
+                    }
+                }
+            }
+        }
     }
 
     return graph;
