@@ -1,4 +1,5 @@
 #include "TransitionService.h"
+#include "RuntimeBlockerService.h"
 #include <algorithm>
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,10 @@ void TransitionService::addUniPortal(const UniPortal& portal) {
 
 void TransitionService::addFloorElevator(const FloorElevator& elevator) {
     elevators_.push_back(elevator);
+}
+
+void TransitionService::setBlockerService(const RuntimeBlockerService* blockerService) {
+    blockerService_ = blockerService;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +79,7 @@ void TransitionService::update(const Rectangle& playerCollider,
 
         const std::string& targetScene = inA ? portal.sceneB : portal.sceneA;
         const Vector2&     spawnPos    = inA ? portal.spawnInB : portal.spawnInA;
+        if (!isDestinationAccessible(targetScene)) continue;
 
         if (portal.requiresE) {
             promptVisible_ = true;
@@ -93,6 +99,7 @@ void TransitionService::update(const Rectangle& playerCollider,
     for (const auto& portal : uniPortals_) {
         if (portal.scene != currentScene) continue;
         if (!CheckCollisionRecs(playerCollider, portal.triggerRect)) continue;
+        if (!isDestinationAccessible(portal.targetScene)) continue;
 
         if (portal.requiresE) {
             promptVisible_ = true;
@@ -114,8 +121,19 @@ void TransitionService::update(const Rectangle& playerCollider,
         if (elev.scene != currentScene) continue;
         if (!CheckCollisionRecs(playerCollider, elev.triggerRect)) continue;
 
+        bool hasAccessibleDestination = false;
+        for (const auto& floor : elev.floors) {
+            if (floor.scene == currentScene) continue;
+            if (isDestinationAccessible(floor.scene)) {
+                hasAccessibleDestination = true;
+                break;
+            }
+        }
+        if (!hasAccessibleDestination) continue;
+
         promptVisible_ = true;
-        promptHint_    = "Press E to change floor";
+        const std::string label = elev.interactionLabel.empty() ? "access" : elev.interactionLabel;
+        promptHint_    = "Press E to use " + label;
         if (IsKeyPressed(KEY_E)) {
             showFloorMenu_     = true;
             activeElevatorIdx_ = i;
@@ -172,7 +190,24 @@ void TransitionService::drawFloorMenu() {
         return;
     }
 
-    const int floorCount = static_cast<int>(elev.floors.size());
+    std::vector<int> accessibleFloorIndices;
+    accessibleFloorIndices.reserve(elev.floors.size());
+    for (int i = 0; i < static_cast<int>(elev.floors.size()); ++i) {
+        const auto& floor = elev.floors[i];
+        if (floor.scene == elev.scene) continue;
+        if (!isDestinationAccessible(floor.scene)) continue;
+        accessibleFloorIndices.push_back(i);
+    }
+
+    if (accessibleFloorIndices.empty()) {
+        showFloorMenu_     = false;
+        activeElevatorIdx_ = -1;
+        selectedFloorIdx_  = 0;
+        floorMenuConfirmArmed_ = false;
+        return;
+    }
+
+    const int floorCount = static_cast<int>(accessibleFloorIndices.size());
     selectedFloorIdx_ = std::clamp(selectedFloorIdx_, 0, floorCount - 1);
 
     if (IsKeyPressed(KEY_UP)) {
@@ -200,7 +235,7 @@ void TransitionService::drawFloorMenu() {
     }
 
     if (floorMenuConfirmArmed_ && (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_E))) {
-        const auto& entry = elev.floors[selectedFloorIdx_];
+        const auto& entry = elev.floors[accessibleFloorIndices[selectedFloorIdx_]];
         beginFadeIn(entry.scene, entry.spawnPos);
         showFloorMenu_     = false;
         activeElevatorIdx_ = -1;
@@ -236,7 +271,7 @@ void TransitionService::drawFloorMenu() {
         const Color fg = selected ? WHITE : Color{210, 220, 235, 255};
         DrawRectangle(panelX + 14, rowY, panelW - 28, rowH - 4, bg);
 
-        const auto& entry = elev.floors[i];
+        const auto& entry = elev.floors[accessibleFloorIndices[i]];
         const std::string label = entry.label.empty() ? entry.scene : entry.label;
         const std::string text = std::to_string(i + 1) + ". " + label;
         DrawText(text.c_str(), panelX + 24, rowY + 7, 20, fg);
@@ -244,6 +279,11 @@ void TransitionService::drawFloorMenu() {
 
     DrawText("Enter/E: confirm", panelX + 16, panelY + panelH - 34, 16, Color{175, 235, 180, 255});
     DrawText("Esc: cancel", panelX + panelW - 110, panelY + panelH - 34, 16, Color{240, 190, 190, 255});
+}
+
+bool TransitionService::isDestinationAccessible(const std::string& sceneId) const {
+    if (!blockerService_) return true;
+    return !blockerService_->isNodeBlocked(sceneId);
 }
 
 bool TransitionService::isCollidingWithSceneTrigger(const Rectangle& playerCollider,

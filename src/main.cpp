@@ -289,6 +289,9 @@ int main(int argc, char* argv[]) {
             elevator.id = trigger.triggerType + "_" + sceneName;
             elevator.scene = sceneName;
             elevator.triggerRect = trigger.triggerRect;
+            if (linkType == SceneLinkType::Elevator) elevator.interactionLabel = "elevator";
+            else if (linkType == SceneLinkType::StairLeft) elevator.interactionLabel = "left stair";
+            else if (linkType == SceneLinkType::StairRight) elevator.interactionLabel = "right stair";
 
             for (const auto& [dstScene, dstLabel] : floorScenes) {
                 const auto dstSpawnMapIt = allSceneSpawns.find(dstScene);
@@ -323,6 +326,7 @@ int main(int argc, char* argv[]) {
 
     RuntimeBlockerService runtimeBlockerService;
     runtimeBlockerService.rebuildOptions(graph, destinationCatalog, sceneLinks);
+    transitions.setBlockerService(&runtimeBlockerService);
     std::vector<std::pair<std::string, std::string>> routeScenes;
     for (const auto& destination : destinationCatalog.destinations()) {
         routeScenes.push_back({destination.nodeId, destination.label});
@@ -868,8 +872,7 @@ int main(int argc, char* argv[]) {
             gameController.applyZoom(input.zoomWheelDelta);
         }
 
-        const bool shouldBlockAccessibilityStairs =
-            scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT;
+        const bool shouldBlockAccessibilityStairs = scenarioManager.isMobilityReduced();
         if (runtimeBlockerService.accessibilityStairBlocksEnabled() != shouldBlockAccessibilityStairs) {
             runtimeBlockerService.setAccessibilityStairBlocks(
                 shouldBlockAccessibilityStairs, resilienceService, sceneLinks);

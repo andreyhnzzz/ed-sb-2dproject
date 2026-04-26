@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+class RuntimeBlockerService;
+
 // ---------------------------------------------------------------------------
 // Data structures
 // ---------------------------------------------------------------------------
@@ -48,6 +50,7 @@ struct FloorElevator {
     std::string             scene;        ///< Which scene this trigger lives in
     Rectangle               triggerRect;
     std::vector<FloorEntry> floors;       ///< Accessible floors (in menu order)
+    std::string             interactionLabel; ///< Prompt label: Elevator / Left stair / Right stair
 };
 
 /// Describes a pending scene-swap (produced when the fade reaches full black).
@@ -78,6 +81,7 @@ public:
     void addPortal(const Portal& portal);
     void addUniPortal(const UniPortal& portal);
     void addFloorElevator(const FloorElevator& elevator);
+    void setBlockerService(const RuntimeBlockerService* blockerService);
 
     /// Process triggers and advance the fade state machine. Call once per frame.
     void update(const Rectangle& playerCollider,
@@ -131,8 +135,10 @@ private:
 
     bool        promptVisible_{false};
     std::string promptHint_;
+    const RuntimeBlockerService* blockerService_{nullptr};
 
     void beginFadeIn(const std::string& targetScene, const Vector2& spawnPos);
     bool isCollidingWithSceneTrigger(const Rectangle& playerCollider,
                                      const std::string& currentScene) const;
+    bool isDestinationAccessible(const std::string& sceneId) const;
 };
