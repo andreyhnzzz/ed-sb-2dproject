@@ -115,8 +115,12 @@ set(SOURCES
         src/services/RuntimeBlockerService.cpp
         src/services/IntroTourConfigLoader.cpp
         src/services/initialization/FloorLinkLoader.cpp
+        src/services/initialization/IntroTourSetup.cpp
+        src/services/initialization/SceneBootstrap.cpp
         src/runtime/InputManager.cpp
         src/runtime/GameController.cpp
+        src/runtime/StartMenuController.cpp
+        src/runtime/GameplayLoopController.cpp
         src/runtime/SceneManager.cpp
         src/runtime/UIManager.cpp
         src/runtime/RuntimeInputManager.cpp
