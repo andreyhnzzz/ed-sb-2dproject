@@ -2,6 +2,16 @@
 
 #include <string>
 
+namespace {
+bool shouldIncludeDestination(SceneLinkType linkType,
+                              const std::string& fromScene,
+                              const std::string& toScene) {
+    if (fromScene == toScene) return false;
+    (void)linkType;
+    return true;
+}
+} // namespace
+
 std::vector<SceneLink> FloorLinkLoader::loadFloorLinks(
     TransitionService& transitions,
     const std::vector<std::pair<std::string, std::string>>& floorScenes,
@@ -38,9 +48,9 @@ std::vector<SceneLink> FloorLinkLoader::loadFloorLinks(
                 if (dstSpawnMapIt == allSceneSpawns.end()) continue;
                 const auto spawnPosIt = dstSpawnMapIt->second.find(destSpawnId);
                 if (spawnPosIt == dstSpawnMapIt->second.end()) continue;
+                if (!shouldIncludeDestination(linkType, sceneName, dstScene)) continue;
 
                 elevator.floors.push_back({dstScene, spawnPosIt->second, dstLabel});
-                if (dstScene == sceneName) continue;
 
                 std::string accessLabel = "Access";
                 if (linkType == SceneLinkType::Elevator) accessLabel = "Elevator";

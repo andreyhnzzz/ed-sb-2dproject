@@ -18,7 +18,7 @@ PathfindTab::PathfindTab(NavigationService& nav, ScenarioManager& scenario, Camp
     grid->addWidget(combo_to_, 1, 1);
     layout->addLayout(grid);
 
-    btn_find_ = new QPushButton("Buscar Camino (DFS)", this);
+    btn_find_ = new QPushButton("Buscar Camino (Dijkstra)", this);
     layout->addWidget(btn_find_);
 
     lbl_total_ = new QLabel(this);
@@ -51,7 +51,7 @@ void PathfindTab::onFindPath() {
     QString to = combo_to_->currentData().toString();
     if (from.isEmpty() || to.isEmpty()) return;
 
-    auto result = nav_.findPathDfs(from.toStdString(), to.toStdString(), scenario_.isMobilityReduced());
+    auto result = nav_.findPath(from.toStdString(), to.toStdString(), scenario_.isMobilityReduced());
 
     list_path_->clear();
     if (!result.found) {
