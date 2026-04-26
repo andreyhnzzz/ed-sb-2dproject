@@ -868,6 +868,14 @@ int main(int argc, char* argv[]) {
             gameController.applyZoom(input.zoomWheelDelta);
         }
 
+        const bool shouldBlockAccessibilityStairs =
+            scenarioManager.getStudentType() == StudentType::DISABLED_STUDENT;
+        if (runtimeBlockerService.accessibilityStairBlocksEnabled() != shouldBlockAccessibilityStairs) {
+            runtimeBlockerService.setAccessibilityStairBlocks(
+                shouldBlockAccessibilityStairs, resilienceService, sceneLinks);
+            routeState.routeRefreshCooldown = 0.0f;
+        }
+
         sceneManager.refreshHitboxes(sceneDataMap, runtimeBlockerService);
         gameController.update(dt, input, sceneManager.getMapData());
         if (gameController.hadCollisionThisFrame() && wallBumpCooldown <= 0.0f) {

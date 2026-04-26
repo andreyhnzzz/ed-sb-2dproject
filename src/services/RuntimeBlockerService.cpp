@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace {
 std::string toLower(std::string value) {
@@ -16,6 +17,14 @@ std::string toLower(std::string value) {
 
 Rectangle rectAroundPoint(const Vector2& point, float radius) {
     return Rectangle{point.x - radius, point.y - radius, radius * 2.0f, radius * 2.0f};
+}
+
+std::string rectKey(const std::string& sceneId, const Rectangle& rect) {
+    return toLower(sceneId) + "|" +
+           std::to_string(static_cast<int>(std::round(rect.x * 10.0f))) + "|" +
+           std::to_string(static_cast<int>(std::round(rect.y * 10.0f))) + "|" +
+           std::to_string(static_cast<int>(std::round(rect.width * 10.0f))) + "|" +
+           std::to_string(static_cast<int>(std::round(rect.height * 10.0f)));
 }
 } // namespace
 
@@ -115,6 +124,47 @@ void RuntimeBlockerService::clearAll(ResilienceService& resilienceService) {
     blockedNodeIds_.clear();
     blockedEdgeKeys_.clear();
     sceneCollisionRects_.clear();
+    accessibilityBlockedPairs_.clear();
+    accessibilitySceneCollisionRects_.clear();
+    accessibilityStairBlocksEnabled_ = false;
+}
+
+void RuntimeBlockerService::setAccessibilityStairBlocks(
+    bool enabled,
+    ResilienceService& resilienceService,
+    const std::vector<SceneLink>& sceneLinks) {
+    if (!enabled) {
+        for (const auto& [from, to] : accessibilityBlockedPairs_) {
+            resilienceService.unblockEdge(from, to);
+        }
+        accessibilityBlockedPairs_.clear();
+        accessibilitySceneCollisionRects_.clear();
+        accessibilityStairBlocksEnabled_ = false;
+        return;
+    }
+
+    if (accessibilityStairBlocksEnabled_) return;
+
+    std::unordered_set<std::string> seenPairs;
+    std::unordered_set<std::string> seenRects;
+    for (const auto& link : sceneLinks) {
+        const bool isStair =
+            link.type == SceneLinkType::StairLeft || link.type == SceneLinkType::StairRight;
+        if (!isStair) continue;
+
+        const std::string pairKey = edgeKey(link.fromScene, link.toScene, "accessibility_stair");
+        if (seenPairs.insert(pairKey).second) {
+            resilienceService.blockEdge(toLower(link.fromScene), toLower(link.toScene));
+            accessibilityBlockedPairs_.push_back({toLower(link.fromScene), toLower(link.toScene)});
+        }
+
+        const std::string collisionKey = rectKey(link.fromScene, link.triggerRect);
+        if (seenRects.insert(collisionKey).second) {
+            accessibilitySceneCollisionRects_[toLower(link.fromScene)].push_back(link.triggerRect);
+        }
+    }
+
+    accessibilityStairBlocksEnabled_ = true;
 }
 
 bool RuntimeBlockerService::isNodeBlocked(const std::string& nodeId) const {
@@ -126,7 +176,18 @@ bool RuntimeBlockerService::isEdgeBlocked(const std::string& edgeKeyValue) const
 }
 
 std::vector<Rectangle> RuntimeBlockerService::collisionRectsForScene(const std::string& sceneId) const {
-    const auto it = sceneCollisionRects_.find(toLower(sceneId));
-    if (it == sceneCollisionRects_.end()) return {};
-    return it->second;
+    std::vector<Rectangle> result;
+    const auto loweredSceneId = toLower(sceneId);
+
+    const auto it = sceneCollisionRects_.find(loweredSceneId);
+    if (it != sceneCollisionRects_.end()) {
+        result.insert(result.end(), it->second.begin(), it->second.end());
+    }
+
+    const auto accessibilityIt = accessibilitySceneCollisionRects_.find(loweredSceneId);
+    if (accessibilityIt != accessibilitySceneCollisionRects_.end()) {
+        result.insert(result.end(), accessibilityIt->second.begin(), accessibilityIt->second.end());
+    }
+
+    return result;
 }

@@ -2,6 +2,7 @@
 
 #include "DestinationCatalog.h"
 #include "ResilienceService.h"
+#include "ScenarioManager.h"
 
 #include "../core/runtime/SceneRuntimeTypes.h"
 
@@ -32,6 +33,10 @@ public:
     bool blockNode(const NavigationDestination& destination, ResilienceService& resilienceService);
     bool blockEdge(const BlockableEdgeOption& edge, ResilienceService& resilienceService);
     void clearAll(ResilienceService& resilienceService);
+    void setAccessibilityStairBlocks(bool enabled,
+                                     ResilienceService& resilienceService,
+                                     const std::vector<SceneLink>& sceneLinks);
+    bool accessibilityStairBlocksEnabled() const { return accessibilityStairBlocksEnabled_; }
 
     bool isNodeBlocked(const std::string& nodeId) const;
     bool isEdgeBlocked(const std::string& edgeKey) const;
@@ -46,4 +51,7 @@ private:
     std::unordered_set<std::string> blockedNodeIds_;
     std::unordered_set<std::string> blockedEdgeKeys_;
     std::unordered_map<std::string, std::vector<Rectangle>> sceneCollisionRects_;
+    bool accessibilityStairBlocksEnabled_{false};
+    std::vector<std::pair<std::string, std::string>> accessibilityBlockedPairs_;
+    std::unordered_map<std::string, std::vector<Rectangle>> accessibilitySceneCollisionRects_;
 };
