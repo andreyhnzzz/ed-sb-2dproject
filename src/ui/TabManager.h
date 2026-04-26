@@ -28,8 +28,12 @@ struct TabManagerState {
     char nodeId[64]{};
 
     TraversalResult lastTraversal;
+    TraversalResult lastDfsTraversal;
+    TraversalResult lastBfsTraversal;
     PathResult lastPath;
     bool hasTraversal{false};
+    bool hasDfsTraversal{false};
+    bool hasBfsTraversal{false};
     bool hasPath{false};
     bool lastConnected{false};
     std::vector<AlgorithmStats> lastStats;
@@ -40,7 +44,7 @@ struct TabManagerState {
     CampusValidationReport validation;
 };
 
-TabManagerState createTabManagerState(const CampusGraph& graph, const std::string& campusJsonPath);
+TabManagerState createTabManagerState(const CampusGraph& graph);
 
 void renderMinimapRouteWindow(
     int screenWidth,

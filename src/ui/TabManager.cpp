@@ -4,10 +4,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
-#include <fstream>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
 
 namespace {
 static std::string toLower(std::string s) {
@@ -76,33 +72,15 @@ static PathResult runProfiledAlternatePath(const CampusGraph& graph,
     return mergeSegmentedPaths(segments);
 }
 
-static CampusValidationReport validateCampusJson(const std::string& campusJsonPath) {
+static CampusValidationReport validateCampusGraph(const CampusGraph& graph) {
     CampusValidationReport report;
-    std::ifstream input(campusJsonPath);
-    if (!input.is_open()) {
-        report.issues.push_back("Could not open campus.json for validation.");
-        return report;
-    }
+    report.nodeCount = graph.nodeCount();
+    report.edgeCount = graph.edgeCount();
 
-    json data;
-    try {
-        input >> data;
-    } catch (...) {
-        report.issues.push_back("campus.json has invalid JSON format.");
-        return report;
-    }
-
-    if (!data.contains("nodes") || !data["nodes"].is_array() ||
-        !data.contains("edges") || !data["edges"].is_array()) {
-        report.issues.push_back("campus.json must contain 'nodes' and 'edges' arrays.");
-        return report;
-    }
-
-    report.nodeCount = static_cast<int>(data["nodes"].size());
-    report.edgeCount = static_cast<int>(data["edges"].size());
-
-    for (const auto& n : data["nodes"]) {
-        const std::string name = toLower(n.value("name", ""));
+    for (const auto& nodeId : graph.nodeIds()) {
+        if (!graph.hasNode(nodeId)) continue;
+        const Node& node = graph.getNode(nodeId);
+        const std::string name = toLower(node.name);
         if (name.find("biblio") != std::string::npos || name.find("biblioteca") != std::string::npos) {
             report.hasBibliotecaNode = true;
         }
@@ -112,20 +90,22 @@ static CampusValidationReport validateCampusJson(const std::string& campusJsonPa
         }
     }
 
-    for (const auto& e : data["edges"]) {
-        if (!e.contains("mobility_weight") || !e.contains("blocked_for_mr")) {
-            report.edgesMissingMobilityFields++;
-        }
-        const double baseWeight = e.value("base_weight", 0.0);
-        if (baseWeight <= 0.0) {
-            report.edgesWithNonPositiveWeight++;
+    for (const auto& fromNodeId : graph.nodeIds()) {
+        for (const auto& edge : graph.edgesFrom(fromNodeId)) {
+            if (edge.from > edge.to) continue;
+            if (edge.base_weight <= 0.0) {
+                report.edgesWithNonPositiveWeight++;
+            }
+            if (edge.blocked_for_mr && edge.mobility_weight != std::numeric_limits<double>::infinity()) {
+                report.edgesMissingMobilityFields++;
+            }
         }
     }
 
     if (report.nodeCount < 8) report.issues.push_back("At least 8 nodes are required.");
     if (report.edgeCount < 10) report.issues.push_back("At least 10 edges are required.");
     if (report.edgesMissingMobilityFields > 0) {
-        report.issues.push_back("Some edges are missing mobility_weight or blocked_for_mr.");
+        report.issues.push_back("Some accessibility edges have inconsistent mobility metadata.");
     }
     if (!report.hasBibliotecaNode) report.issues.push_back("No Library node detected.");
     if (!report.hasSodaOrComedorNode) report.issues.push_back("No Cafeteria/Dining node detected.");
@@ -137,14 +117,14 @@ static CampusValidationReport validateCampusJson(const std::string& campusJsonPa
 }
 } // namespace
 
-TabManagerState createTabManagerState(const CampusGraph& graph, const std::string& campusJsonPath) {
+TabManagerState createTabManagerState(const CampusGraph& graph) {
     TabManagerState state;
     const auto ids = graph.nodeIds();
     const std::string start = ids.empty() ? "" : ids.front();
     const std::string end = ids.size() > 1 ? ids[1] : start;
     std::snprintf(state.startId, sizeof(state.startId), "%s", start.c_str());
     std::snprintf(state.endId, sizeof(state.endId), "%s", end.c_str());
-    state.validation = validateCampusJson(campusJsonPath);
+    state.validation = validateCampusGraph(graph);
     return state;
 }
 
@@ -268,26 +248,30 @@ static void renderAcademicControlPanelContent(
     if (ImGui::BeginTabBar("RubricaTabs")) {
         if (ImGui::BeginTabItem("1.DFS")) {
             if (ImGui::Button("Run DFS")) {
-                state.lastTraversal = navService.runDfs(state.startId, scenarioManager.isMobilityReduced());
+                state.lastDfsTraversal = navService.runDfs(state.startId, scenarioManager.isMobilityReduced());
+                state.lastTraversal = state.lastDfsTraversal;
                 state.hasTraversal = true;
+                state.hasDfsTraversal = true;
                 state.lastAction = "DFS";
             }
-            if (state.lastAction == "DFS" && state.hasTraversal) {
-                ImGui::Text("Visited nodes: %d", state.lastTraversal.nodes_visited);
-                ImGui::Text("Time: %lld us", state.lastTraversal.elapsed_us);
+            if (state.hasDfsTraversal) {
+                ImGui::Text("Visited nodes: %d", state.lastDfsTraversal.nodes_visited);
+                ImGui::Text("Time: %lld us", state.lastDfsTraversal.elapsed_us);
             }
             ImGui::EndTabItem();
         }
 
         if (ImGui::BeginTabItem("2.BFS")) {
             if (ImGui::Button("Run BFS")) {
-                state.lastTraversal = navService.runBfs(state.startId, scenarioManager.isMobilityReduced());
+                state.lastBfsTraversal = navService.runBfs(state.startId, scenarioManager.isMobilityReduced());
+                state.lastTraversal = state.lastBfsTraversal;
                 state.hasTraversal = true;
+                state.hasBfsTraversal = true;
                 state.lastAction = "BFS";
             }
-            if (state.lastAction == "BFS" && state.hasTraversal) {
-                ImGui::Text("Visited nodes: %d", state.lastTraversal.nodes_visited);
-                ImGui::Text("Time: %lld us", state.lastTraversal.elapsed_us);
+            if (state.hasBfsTraversal) {
+                ImGui::Text("Visited nodes: %d", state.lastBfsTraversal.nodes_visited);
+                ImGui::Text("Time: %lld us", state.lastBfsTraversal.elapsed_us);
             }
             ImGui::EndTabItem();
         }

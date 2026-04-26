@@ -81,6 +81,6 @@ cmake --build --preset release
 
 ## Observaciones
 
-- El archivo `campus.generated.json` se considera artefacto generado del runtime.
+- El archivo `campus.generated.json` se exporta como artefacto auxiliar del runtime, pero la ejecucion normal ya no depende funcionalmente de leerlo.
 - `imgui.ini` y carpetas de IDE no forman parte de la entrega final.
 - La estructura actual esta preparada para seguir extrayendo modulos si se desea dividir mas el bootstrap.

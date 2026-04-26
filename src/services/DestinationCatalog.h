@@ -33,6 +33,9 @@ struct PoiEdgeMetadata {
 
 class DestinationCatalog {
 public:
+    bool loadFromGraph(const CampusGraph& graph,
+                       const std::unordered_map<std::string, SceneData>& sceneDataMap);
+
     bool loadFromGeneratedJson(const std::string& generatedGraphPath,
                                const std::unordered_map<std::string, SceneData>& sceneDataMap);
 

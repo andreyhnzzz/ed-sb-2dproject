@@ -99,10 +99,15 @@ bool ApplicationSession::loadGraphData() {
                                               sceneBootstrap_.sceneToTmjPath,
                                               sceneBootstrap_.interestZonesPath,
                                               kPixelsToMeters);
-        dataManager_.exportResolvedGraph(graph_, sceneBootstrap_.generatedGraphRuntimePath);
     } catch (const std::exception& ex) {
         std::cerr << "Error loading GIS data: " << ex.what() << "\n";
         return false;
+    }
+
+    try {
+        dataManager_.exportResolvedGraph(graph_, sceneBootstrap_.generatedGraphRuntimePath);
+    } catch (const std::exception& ex) {
+        std::cerr << "Warning exporting runtime graph: " << ex.what() << "\n";
     }
 
     return true;
@@ -113,8 +118,7 @@ bool ApplicationSession::initializeNavigationDomain() {
     complexityAnalyzer_.emplace(graph_);
     resilienceService_.emplace(graph_);
 
-    destinationCatalog_.loadFromGeneratedJson(sceneBootstrap_.generatedGraphRuntimePath,
-                                              sceneBootstrap_.sceneDataMap);
+    destinationCatalog_.loadFromGraph(graph_, sceneBootstrap_.sceneDataMap);
     scenarioManager_.setReferenceWaypoints(
         destinationCatalog_.preferredReferenceWaypoints(graph_));
 
@@ -131,7 +135,7 @@ bool ApplicationSession::initializeNavigationDomain() {
     sceneBootstrap_.buildRouteScenes(destinationCatalog_, routeScenes_);
 
     runtimeNavigation_.emplace(destinationCatalog_);
-    tabState_ = createTabManagerState(graph_, sceneBootstrap_.generatedGraphRuntimePath);
+    tabState_ = createTabManagerState(graph_);
     routeState_ = RouteRuntimeState{};
     routeState_.routeMobilityReduced = scenarioManager_.isMobilityReduced();
     routeState_.routeAnchorPos = resolveGameplaySpawnPos();

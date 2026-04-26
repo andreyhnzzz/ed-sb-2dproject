@@ -181,6 +181,91 @@ bool DestinationCatalog::loadFromGeneratedJson(
     return !destinations_.empty();
 }
 
+bool DestinationCatalog::loadFromGraph(
+    const CampusGraph& graph,
+    const std::unordered_map<std::string, SceneData>& sceneDataMap) {
+    clear();
+
+    for (const auto& nodeId : graph.nodeIds()) {
+        if (!graph.hasNode(nodeId)) continue;
+        const Node& node = graph.getNode(nodeId);
+
+        NavigationDestination destination;
+        destination.nodeId = toLower(node.id);
+        destination.label = node.name.empty() ? destination.nodeId : node.name;
+        destination.type = node.type;
+        destination.sceneId = inferSceneId(json{
+            {"id", node.id},
+            {"type", node.type}
+        });
+        destination.worldPos = Vector2{
+            static_cast<float>(node.x),
+            static_cast<float>(node.y)
+        };
+        destination.isPoi = toLower(destination.type).find("poi") != std::string::npos;
+        destination.scenarioTag = inferScenarioTag(destination.type, destination.label);
+        if (destination.isPoi && !destination.sceneId.empty()) {
+            destination.zoneRects = matchZoneRects(sceneDataMap, destination.sceneId, destination.label);
+        }
+
+        destinationIndexByNodeId_[destination.nodeId] = destinations_.size();
+        destinations_.push_back(std::move(destination));
+    }
+
+    for (const auto& fromNodeId : graph.nodeIds()) {
+        for (const auto& edge : graph.edgesFrom(fromNodeId)) {
+            if (toLower(edge.type) != "poi") continue;
+            if (edge.from > edge.to) continue;
+
+            const std::string canonicalFrom = toLower(edge.from);
+            const std::string canonicalTo = toLower(edge.to);
+            auto destinationIt = destinationIndexByNodeId_.find(canonicalTo);
+            if (destinationIt == destinationIndexByNodeId_.end()) continue;
+
+            NavigationDestination& destination = destinations_[destinationIt->second];
+            if (destination.sceneId.empty()) {
+                destination.sceneId = canonicalFrom;
+                if (destination.zoneRects.empty()) {
+                    destination.zoneRects = matchZoneRects(sceneDataMap, destination.sceneId, destination.label);
+                }
+            }
+
+            PoiEdgeMetadata metadata;
+            metadata.edgeId = edge.id.empty() ? canonicalFrom + "_" + canonicalTo : edge.id;
+            metadata.fromNodeId = canonicalFrom;
+            metadata.toNodeId = canonicalTo;
+            metadata.sceneId = destination.sceneId.empty() ? canonicalFrom : destination.sceneId;
+            metadata.label = destination.label;
+            metadata.scenarioTag = destination.scenarioTag;
+            metadata.worldPos = destination.worldPos;
+            metadata.collisionRects = destination.zoneRects;
+            if (metadata.collisionRects.empty()) {
+                metadata.collisionRects.push_back(Rectangle{
+                    metadata.worldPos.x - 18.0f,
+                    metadata.worldPos.y - 18.0f,
+                    36.0f,
+                    36.0f
+                });
+            }
+
+            poiEdgeIndexByKey_[makePoiKey(metadata.fromNodeId, metadata.toNodeId)] = poiEdges_.size();
+            poiEdges_.push_back(std::move(metadata));
+        }
+    }
+
+    std::sort(destinations_.begin(), destinations_.end(), [](const NavigationDestination& a,
+                                                             const NavigationDestination& b) {
+        if (a.isPoi != b.isPoi) return a.isPoi > b.isPoi;
+        return StringUtils::toLowerCopy(a.label) < StringUtils::toLowerCopy(b.label);
+    });
+    destinationIndexByNodeId_.clear();
+    for (size_t i = 0; i < destinations_.size(); ++i) {
+        destinationIndexByNodeId_[destinations_[i].nodeId] = i;
+    }
+
+    return !destinations_.empty();
+}
+
 bool DestinationCatalog::hasDestination(const std::string& nodeId) const {
     return destinationIndexByNodeId_.count(toLower(nodeId)) > 0;
 }

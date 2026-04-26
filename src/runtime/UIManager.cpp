@@ -1027,26 +1027,28 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
             Rectangle execBtn{static_cast<float>(contentX), static_cast<float>(yRight),
                               static_cast<float>(px(180)), static_cast<float>(buttonHeight)};
             if (drawRayButton(execBtn, "Ejecutar DFS", bodyFont, btn, btnHover, btnActive, white)) {
-                tabState.lastTraversal = navService.runDfs(tabState.startId, scenarioManager.isMobilityReduced());
+                tabState.lastDfsTraversal = navService.runDfs(tabState.startId, scenarioManager.isMobilityReduced());
+                tabState.lastTraversal = tabState.lastDfsTraversal;
                 tabState.hasTraversal = true;
+                tabState.hasDfsTraversal = true;
                 tabState.lastAction = "DFS";
                 soundEffectService.play(SoundEffectType::RouteFixated);
             }
             yRight += px(46);
 
-            if (tabState.hasTraversal && tabState.lastAction == "DFS") {
-                DrawText(TextFormat("Nodos visitados: %d", tabState.lastTraversal.nodes_visited),
+            if (tabState.hasDfsTraversal) {
+                DrawText(TextFormat("Nodos visitados: %d", tabState.lastDfsTraversal.nodes_visited),
                          contentX, yRight, bodyFont, accentDfs);
                 yRight += px(22);
-                DrawText(TextFormat("Tiempo: %lld us", tabState.lastTraversal.elapsed_us),
+                DrawText(TextFormat("Tiempo: %lld us", tabState.lastDfsTraversal.elapsed_us),
                          contentX, yRight, bodyFont, white);
                 yRight += px(28);
                 DrawText("Orden de visita:", contentX, yRight, bodyFont, white);
                 yRight += px(22);
 
                 std::vector<std::string> lines;
-                for (size_t i = 0; i < tabState.lastTraversal.visit_order.size(); ++i) {
-                    lines.push_back(TextFormat("%zu. %s", i + 1, tabState.lastTraversal.visit_order[i].c_str()));
+                for (size_t i = 0; i < tabState.lastDfsTraversal.visit_order.size(); ++i) {
+                    lines.push_back(TextFormat("%zu. %s", i + 1, tabState.lastDfsTraversal.visit_order[i].c_str()));
                 }
                 drawPagedLines(lines, state.dfsViewPage, contentX, yRight, contentW, px(220));
             }
@@ -1061,26 +1063,28 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
             Rectangle execBtn{static_cast<float>(contentX), static_cast<float>(yRight),
                               static_cast<float>(px(180)), static_cast<float>(buttonHeight)};
             if (drawRayButton(execBtn, "Ejecutar BFS", bodyFont, btn, btnHover, btnActive, white)) {
-                tabState.lastTraversal = navService.runBfs(tabState.startId, scenarioManager.isMobilityReduced());
+                tabState.lastBfsTraversal = navService.runBfs(tabState.startId, scenarioManager.isMobilityReduced());
+                tabState.lastTraversal = tabState.lastBfsTraversal;
                 tabState.hasTraversal = true;
+                tabState.hasBfsTraversal = true;
                 tabState.lastAction = "BFS";
                 soundEffectService.play(SoundEffectType::RouteFixated);
             }
             yRight += px(46);
 
-            if (tabState.hasTraversal && tabState.lastAction == "BFS") {
-                DrawText(TextFormat("Nodos visitados: %d", tabState.lastTraversal.nodes_visited),
+            if (tabState.hasBfsTraversal) {
+                DrawText(TextFormat("Nodos visitados: %d", tabState.lastBfsTraversal.nodes_visited),
                          contentX, yRight, bodyFont, accentBfs);
                 yRight += px(22);
-                DrawText(TextFormat("Tiempo: %lld us", tabState.lastTraversal.elapsed_us),
+                DrawText(TextFormat("Tiempo: %lld us", tabState.lastBfsTraversal.elapsed_us),
                          contentX, yRight, bodyFont, white);
                 yRight += px(28);
                 DrawText("Orden de visita:", contentX, yRight, bodyFont, white);
                 yRight += px(22);
 
                 std::vector<std::string> lines;
-                for (size_t i = 0; i < tabState.lastTraversal.visit_order.size(); ++i) {
-                    lines.push_back(TextFormat("%zu. %s", i + 1, tabState.lastTraversal.visit_order[i].c_str()));
+                for (size_t i = 0; i < tabState.lastBfsTraversal.visit_order.size(); ++i) {
+                    lines.push_back(TextFormat("%zu. %s", i + 1, tabState.lastBfsTraversal.visit_order[i].c_str()));
                 }
                 drawPagedLines(lines, state.bfsViewPage, contentX, yRight, contentW, px(220));
             }
@@ -1574,14 +1578,18 @@ void UIManager::renderLegacyImGuiOverlay(State& state,
     comboSelectNode("Nodo para resiliencia", nodeIds, tabState.nodeId, sizeof(tabState.nodeId));
 
     if (ImGui::Button("Ejecutar DFS", ImVec2(120, 0))) {
-        tabState.lastTraversal = navService.runDfs(tabState.startId, scenarioManager.isMobilityReduced());
+        tabState.lastDfsTraversal = navService.runDfs(tabState.startId, scenarioManager.isMobilityReduced());
+        tabState.lastTraversal = tabState.lastDfsTraversal;
         tabState.hasTraversal = true;
+        tabState.hasDfsTraversal = true;
         tabState.lastAction = "DFS";
     }
     ImGui::SameLine();
     if (ImGui::Button("Ejecutar BFS", ImVec2(120, 0))) {
-        tabState.lastTraversal = navService.runBfs(tabState.startId, scenarioManager.isMobilityReduced());
+        tabState.lastBfsTraversal = navService.runBfs(tabState.startId, scenarioManager.isMobilityReduced());
+        tabState.lastTraversal = tabState.lastBfsTraversal;
         tabState.hasTraversal = true;
+        tabState.hasBfsTraversal = true;
         tabState.lastAction = "BFS";
     }
     ImGui::SameLine();
