@@ -1,78 +1,119 @@
 # EcoCampusNav
 
-Sistema de navegacion inteligente para campus universitario implementado en C++17 con `raylib` + `rlImGui`.
+> Navegacion inteligente para campus universitario en `C++17` con `raylib`, `ImGui` y arquitectura modular orientada a runtime.
 
-## Caracteristicas principales
+## Vista General
 
-- Menu academico con 8 pestanas activado con `M`
-- Comparacion BFS vs DFS con nodos visitados y tiempo en microsegundos
-- Busqueda de rutas perfiladas y rutas DFS
-- Simulacion de bloqueos de nodos y conexiones
-- Recalculo de rutas en tiempo real
-- Perfiles de estudiante: nuevo, veterano y discapacitado
-- Visualizacion del grafo sobre el mapa del campus
+| Aspecto | Detalle |
+| --- | --- |
+| Proposito | Simular navegacion academica e inclusiva dentro de un campus |
+| Stack | `C++17`, `CMake`, `raylib`, `rlImGui`, `nlohmann/json` |
+| Motor visual | Render 2D con mapa por escenas y overlays interactivos |
+| Enfoque | Rutas, perfiles de usuario, resiliencia y analisis de grafos |
+| Estado | Listo para compilacion `Debug` y `Release` |
 
-## Estructura
+## Caracteristicas
+
+| Modulo | Capacidades |
+| --- | --- |
+| Navegacion | BFS, DFS, ruta perfilada y ruta alterna |
+| Escenarios | Estudiante nuevo, veterano y movilidad reducida |
+| Resiliencia | Bloqueo de nodos y aristas con recalculo de ruta |
+| Runtime | Cambio entre escenas, spawns, triggers y transiciones |
+| UI | Menu principal, overlay informativo y panel academico |
+| Analitica | Comparacion empirica BFS vs DFS y validacion basica del grafo |
+
+## Arquitectura
 
 ```text
 EcoCampusNav/
-|- CMakeLists.txt
-|- CMakePresets.json
+|- assets/                     # mapas, sprites, audio y datos runtime
+|- external/rlImGui/           # integracion local raylib + ImGui
+|- src/
+|  |- core/
+|  |  `- application/          # sesion, ventana y audio
+|  |- repositories/            # acceso a datos JSON
+|  |- runtime/                 # loop de juego, menu y escenas
+|  |- services/                # reglas de negocio y utilidades
+|  `- ui/                      # estado y componentes de tabs
 |- campus.json
-|- assets/
-|- external/
-|  `- rlImGui/
-`- src/
-   |- core/
-   |- repositories/
-   |- runtime/
-   |- services/
-   `- ui/
-      |- TabManager.cpp
-      `- TabManager.h
+|- CMakeLists.txt
+`- CMakePresets.json
 ```
 
-Nota: el frontend Qt legado fue retirado del arbol activo. `src/ui/TabManager.*` se conserva porque hoy no depende de Qt y sigue aportando estado/utilidades al runtime Raylib.
+## Flujo de Aplicacion
 
-## Dependencias
+| Etapa | Responsable |
+| --- | --- |
+| Bootstrap | `ApplicationSession` |
+| Inicializacion de ventana/audio | `WindowInitializer`, `AudioInitializer` |
+| Carga de escenas | `SceneBootstrap`, `SceneManager` |
+| Menu de inicio | `StartMenuController` |
+| Gameplay | `GameplayLoopController` |
+| Navegacion runtime | `RuntimeNavigationManager` |
 
-- CMake 3.20+
-- Compilador compatible con C++17
-- `raylib`
-- `nlohmann/json`
-- `imgui`
-- `external/rlImGui`
+## Controles
+
+| Entrada | Accion |
+| --- | --- |
+| `W/A/S/D` | Movimiento |
+| `Shift` | Sprint |
+| Rueda del mouse | Zoom |
+| `M` | Abrir o cerrar menu de informacion |
+| `W/S` o flechas | Navegar menu principal |
+| `Enter` / clic izquierdo | Confirmar opcion |
 
 ## Compilacion
+
+### Debug
 
 ```bash
 cmake --preset debug
 cmake --build --preset debug
 ```
 
-## Uso
+### Release
 
-1. Ejecuta `EcoCampusNav`.
-2. Presiona `M` para abrir el menu de analisis.
-3. Navega por las pestanas:
-   - `Mapa`
-   - `DFS`
-   - `BFS`
-   - `Conexo`
-   - `Camino`
-   - `Escenarios`
-   - `Complejidad`
-   - `Fallos`
+```bash
+cmake --preset release
+cmake --build --preset release
+```
 
-## Controles
+## Ejecucion
 
-- `W/A/S/D`: movimiento
-- `Shift`: sprint
-- Rueda del mouse: zoom
-- `M`: abrir o cerrar el menu de informacion
+| Modo | Binario esperado |
+| --- | --- |
+| Debug | `build-debug/Debug/EcoCampusNav.exe` |
+| Release | `build/Release/EcoCampusNav.exe` |
 
-## Estado tecnico
+## Dependencias
 
-- El runtime principal vive en `src/main.cpp`.
-- La interfaz activa usa `raylib` y `rlImGui`.
-- El menu academico compara algoritmos, muestra conectividad, simula fallos y controla perfiles.
+| Dependencia | Uso |
+| --- | --- |
+| `raylib` | render, input, audio base |
+| `ImGui` | paneles y tooling academico |
+| `rlImGui` | puente entre raylib e ImGui |
+| `nlohmann/json` | parseo de datos del campus |
+
+## Estado Tecnico
+
+| Estado | Nota |
+| --- | --- |
+| `main.cpp` | Deliberadamente delgado: delega a `ApplicationSession` |
+| Runtime | Separado en controladores de menu y gameplay |
+| Build | Presets `debug` y `release` configurados |
+| Entrega | `.gitignore` preparado para artefactos comunes de CMake y Visual Studio |
+
+## Entrega Recomendada
+
+1. Compilar `Release`.
+2. Verificar carga de escenas y audio.
+3. Confirmar transiciones entre pisos.
+4. Subir el repo sin artefactos locales ignorados.
+
+## Creditos
+
+| Rol | Nombre |
+| --- | --- |
+| Desarrollo | Javier Mendoza Gonzalez |
+| Desarrollo | Andrey Hernandez Salazar |

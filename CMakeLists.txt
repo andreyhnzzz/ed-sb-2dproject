@@ -88,6 +88,7 @@ endif()
 # ============================================================================
 set(SOURCES
         src/main.cpp
+        src/core/application/ApplicationSession.cpp
         src/core/application/WindowInitializer.cpp
         src/core/application/AudioInitializer.cpp
         src/core/graph/CampusGraph.cpp
