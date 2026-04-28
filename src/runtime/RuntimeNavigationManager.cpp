@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <limits>
 #include <unordered_map>
 
@@ -21,14 +20,10 @@ std::string canonicalSceneId(std::string sceneName) {
 
 double edgeDistanceMeters(const CampusGraph& graph, const std::string& from, const std::string& to) {
     if (!graph.hasNode(from) || !graph.hasNode(to)) return 0.0;
-    double bestDistance = std::numeric_limits<double>::infinity();
     for (const auto& edge : graph.edgesFrom(from)) {
-        if (edge.to != to) continue;
-        if (edge.base_weight < bestDistance) {
-            bestDistance = edge.base_weight;
-        }
+        if (edge.to == to) return edge.base_weight;
     }
-    return std::isfinite(bestDistance) ? bestDistance : 0.0;
+    return 0.0;
 }
 
 double calculatePathDistanceMeters(const CampusGraph& graph,

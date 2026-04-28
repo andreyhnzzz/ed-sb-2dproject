@@ -53,6 +53,13 @@ double euclideanMeters(const Vector2& from, const Vector2& to, double pixelsToMe
     return std::sqrt(dx * dx + dy * dy) * pixelsToMeters;
 }
 
+bool isStairType(const std::string& type) {
+    const std::string lowered = toLower(type);
+    return lowered.find("escalera") != std::string::npos ||
+           lowered.find("escal") != std::string::npos ||
+           lowered.find("stair") != std::string::npos;
+}
+
 std::string sanitizeForId(const std::string& value) {
     std::string out;
     out.reserve(value.size());
@@ -96,18 +103,6 @@ bool computeZoneCenter(const json& zoneDef, Vector2& outCenter) {
         static_cast<float>(accY / static_cast<double>(count))
     };
     return true;
-}
-
-double resolveOptionalWeight(const json& edgeJson, const char* key, double fallback) {
-    if (!edgeJson.contains(key) || edgeJson[key].is_null() || !edgeJson[key].is_number()) {
-        return fallback;
-    }
-
-    const double value = edgeJson[key].get<double>();
-    if (!std::isfinite(value) || value <= 0.0) {
-        return fallback;
-    }
-    return value;
 }
 } // namespace
 
@@ -181,21 +176,17 @@ CampusGraph DataManager::loadCampusGraph(
 
         const std::string type = je.value("type", "Portal");
         const double distanceMeters = euclideanMeters(fromAnchor, toAnchor, pixelsToMeters);
-        const double fallbackDistance = distanceMeters > 0.0 ? distanceMeters : 1.0;
 
         Edge edge;
         edge.id = je.value("id", from + "_" + to + "_" + toLower(type));
         edge.from = from;
         edge.to = to;
         edge.type = type;
-        edge.base_weight = resolveOptionalWeight(je, "base_weight", fallbackDistance);
-        edge.blocked_for_mr = je.contains("blocked_for_mr")
-            ? je["blocked_for_mr"].get<bool>()
-            : false;
-        edge.mobility_weight = resolveOptionalWeight(
-            je,
-            "mobility_weight",
-            edge.blocked_for_mr ? std::numeric_limits<double>::infinity() : edge.base_weight);
+        edge.base_weight = distanceMeters;
+        edge.blocked_for_mr = isStairType(type);
+        edge.mobility_weight = edge.blocked_for_mr
+            ? std::numeric_limits<double>::infinity()
+            : distanceMeters;
         graph.addEdge(edge);
     }
 

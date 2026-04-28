@@ -1,8 +1,6 @@
 #include "TransitionService.h"
 #include "RuntimeBlockerService.h"
 #include <algorithm>
-#include <cmath>
-#include <limits>
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -118,8 +116,6 @@ void TransitionService::update(const Rectangle& playerCollider,
     // -----------------------------------------------------------------------
     // Floor elevator triggers
     // -----------------------------------------------------------------------
-    int bestElevatorIdx = -1;
-    float bestDistance = std::numeric_limits<float>::max();
     for (int i = 0; i < static_cast<int>(elevators_.size()); ++i) {
         const auto& elev = elevators_[i];
         if (elev.scene != currentScene) continue;
@@ -134,21 +130,13 @@ void TransitionService::update(const Rectangle& playerCollider,
             }
         }
         if (!hasAccessibleDestination) continue;
-        const float distance = distanceToTrigger(playerCollider, elev.triggerRect);
-        if (distance < bestDistance) {
-            bestDistance = distance;
-            bestElevatorIdx = i;
-        }
-    }
 
-    if (bestElevatorIdx >= 0) {
-        const auto& elev = elevators_[bestElevatorIdx];
         promptVisible_ = true;
         const std::string label = elev.interactionLabel.empty() ? "access" : elev.interactionLabel;
         promptHint_    = "Press E to use " + label;
         if (IsKeyPressed(KEY_E)) {
             showFloorMenu_     = true;
-            activeElevatorIdx_ = bestElevatorIdx;
+            activeElevatorIdx_ = i;
             selectedFloorIdx_  = 0;
             floorMenuConfirmArmed_ = false;
         }
@@ -181,18 +169,6 @@ void TransitionService::beginFadeIn(const std::string& targetScene,
     phase_       = Phase::FADING_IN;
     fadeAlpha_   = 0.0f;
     swapPending_ = false;
-}
-
-float TransitionService::distanceToTrigger(const Rectangle& playerCollider,
-                                           const Rectangle& trigger) {
-    const float playerCenterX = playerCollider.x + playerCollider.width * 0.5f;
-    const float playerCenterY = playerCollider.y + playerCollider.height * 0.5f;
-    const float triggerCenterX = trigger.x + trigger.width * 0.5f;
-    const float triggerCenterY = trigger.y + trigger.height * 0.5f;
-
-    const float dx = playerCenterX - triggerCenterX;
-    const float dy = playerCenterY - triggerCenterY;
-    return std::sqrt(dx * dx + dy * dy);
 }
 
 // ---------------------------------------------------------------------------

@@ -138,7 +138,6 @@ private:
     const RuntimeBlockerService* blockerService_{nullptr};
 
     void beginFadeIn(const std::string& targetScene, const Vector2& spawnPos);
-    static float distanceToTrigger(const Rectangle& playerCollider, const Rectangle& trigger);
     bool isCollidingWithSceneTrigger(const Rectangle& playerCollider,
                                      const std::string& currentScene) const;
     bool isDestinationAccessible(const std::string& sceneId) const;
