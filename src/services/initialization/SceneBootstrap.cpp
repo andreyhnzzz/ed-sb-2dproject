@@ -30,6 +30,7 @@ SceneBootstrap SceneBootstrap::load(const char* executablePath, const std::strin
         {"piso3", "assets/maps/piso 3.png", "assets/maps/piso3.tmj"},
         {"piso4", "assets/maps/piso 4.png", "assets/maps/piso 4.tmj"},
         {"piso5", "assets/maps/piso 5.png", "assets/maps/piso 5.tmj"},
+        {"easter_egg", "assets/maps/easter_egg.png", "assets/maps/easter_egg.tmj"},
     };
 
     out.floorScenes = {
@@ -168,7 +169,8 @@ Vector2 SceneBootstrap::sceneTargetPoint(const std::string& sceneName) const {
              std::string("intcafe_arrive"),
              std::string("biblio_main_arrive"),
              std::string("elevator_arrive"),
-             std::string("piso4_main_L_arrive")
+             std::string("piso4_main_L_arrive"),
+             std::string("jeff_spawn")
          }) {
         const auto it = spawnMap.find(preferred);
         if (it != spawnMap.end()) return it->second;

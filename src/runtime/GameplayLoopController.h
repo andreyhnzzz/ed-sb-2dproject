@@ -7,6 +7,7 @@
 #include "runtime/UIManager.h"
 #include "services/ComplexityAnalyzer.h"
 #include "services/DestinationCatalog.h"
+#include "services/EasterEggManager.h"
 #include "services/MusicService.h"
 #include "services/NavigationService.h"
 #include "services/ResilienceService.h"
@@ -27,6 +28,7 @@ class GameplayLoopController {
 public:
     GameplayLoopController(int screenWidth,
                            int screenHeight,
+                           const char* executablePath,
                            CampusGraph& graph,
                            NavigationService& navigationService,
                            ScenarioManager& scenarioManager,
@@ -43,6 +45,7 @@ public:
                            RuntimeBlockerService& runtimeBlockerService,
                            MusicService& musicService,
                            SoundEffectService& soundEffectService,
+                           EasterEggManager& easterEggManager,
                            const SceneBootstrap& sceneBootstrap,
                            const std::vector<std::pair<std::string, std::string>>& routeScenes,
                            TabManagerState& tabState,
@@ -54,6 +57,7 @@ public:
 
     void begin(const std::string& initialSceneName, const Vector2& spawnPos);
     void runFrame(float dt);
+    bool shouldExit() const;
 
 private:
     void updateNavigationOverlays();
@@ -61,6 +65,7 @@ private:
 
     int screenWidth_{0};
     int screenHeight_{0};
+    const char* executablePath_{nullptr};
     CampusGraph& graph_;
     NavigationService& navigationService_;
     ScenarioManager& scenarioManager_;
@@ -77,6 +82,7 @@ private:
     RuntimeBlockerService& runtimeBlockerService_;
     MusicService& musicService_;
     SoundEffectService& soundEffectService_;
+    EasterEggManager& easterEggManager_;
     const SceneBootstrap& sceneBootstrap_;
     const std::vector<std::pair<std::string, std::string>>& routeScenes_;
     TabManagerState& tabState_;

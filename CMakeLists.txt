@@ -114,6 +114,7 @@ set(SOURCES
         src/services/MapRenderService.cpp
         src/services/DestinationCatalog.cpp
         src/services/RuntimeBlockerService.cpp
+        src/services/EasterEggManager.cpp
         src/services/IntroTourConfigLoader.cpp
         src/services/initialization/FloorLinkLoader.cpp
         src/services/initialization/IntroTourSetup.cpp

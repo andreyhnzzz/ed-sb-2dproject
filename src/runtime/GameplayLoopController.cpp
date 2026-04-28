@@ -2,6 +2,7 @@
 
 #include "runtime/InputState.h"
 #include "runtime/RenderContext.h"
+#include "services/AssetPathResolver.h"
 #include "services/MapRenderService.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 GameplayLoopController::GameplayLoopController(
     int screenWidth,
     int screenHeight,
+    const char* executablePath,
     CampusGraph& graph,
     NavigationService& navigationService,
     ScenarioManager& scenarioManager,
@@ -25,6 +27,7 @@ GameplayLoopController::GameplayLoopController(
     RuntimeBlockerService& runtimeBlockerService,
     MusicService& musicService,
     SoundEffectService& soundEffectService,
+    EasterEggManager& easterEggManager,
     const SceneBootstrap& sceneBootstrap,
     const std::vector<std::pair<std::string, std::string>>& routeScenes,
     TabManagerState& tabState,
@@ -35,6 +38,7 @@ GameplayLoopController::GameplayLoopController(
     std::function<Vector2(const std::string&)> sceneTargetPoint)
     : screenWidth_(screenWidth),
       screenHeight_(screenHeight),
+      executablePath_(executablePath),
       graph_(graph),
       navigationService_(navigationService),
       scenarioManager_(scenarioManager),
@@ -51,6 +55,7 @@ GameplayLoopController::GameplayLoopController(
       runtimeBlockerService_(runtimeBlockerService),
       musicService_(musicService),
       soundEffectService_(soundEffectService),
+      easterEggManager_(easterEggManager),
       sceneBootstrap_(sceneBootstrap),
       routeScenes_(routeScenes),
       tabState_(tabState),
@@ -61,6 +66,7 @@ GameplayLoopController::GameplayLoopController(
       sceneTargetPoint_(std::move(sceneTargetPoint)) {}
 
 void GameplayLoopController::begin(const std::string& initialSceneName, const Vector2& spawnPos) {
+    easterEggManager_.reset();
     sceneManager_.loadScene(initialSceneName,
                             sceneBootstrap_.sceneMap,
                             sceneBootstrap_.sceneDataMap,
@@ -88,6 +94,33 @@ void GameplayLoopController::begin(const std::string& initialSceneName, const Ve
 
 void GameplayLoopController::runFrame(float dt) {
     wallBumpCooldown_ = std::max(0.0f, wallBumpCooldown_ - dt);
+    easterEggManager_.update(dt);
+
+    if (easterEggManager_.consumeActivationEvent()) {
+        soundEffectService_.play(SoundEffectType::ItsMe);
+        musicService_.enableShuffle(false);
+        musicService_.playMusic("easter_egg");
+    }
+
+    EasterEggManager::TeleportRequest teleportRequest;
+    if (easterEggManager_.consumePendingTeleport(teleportRequest)) {
+        sceneManager_.loadScene(teleportRequest.sceneName,
+                                sceneBootstrap_.sceneMap,
+                                sceneBootstrap_.sceneDataMap,
+                                runtimeBlockerService_);
+        gameController_.setPlayerPosition(teleportRequest.spawnPos);
+        gameController_.resetZoom();
+        gameController_.clampCameraToMap(sceneManager_.getMapData(), screenWidth_, screenHeight_);
+        routeState_ = RouteRuntimeState{};
+        routeState_.routeMobilityReduced = scenarioManager_.isMobilityReduced();
+        routeState_.routeAnchorPos = teleportRequest.spawnPos;
+        clearNavigationOverlays();
+        previousRouteCompleted_ = false;
+        uiManager_.refreshTraversalViews(uiState_,
+                                         canonicalSceneId_(teleportRequest.sceneName),
+                                         navigationService_,
+                                         scenarioManager_.isMobilityReduced());
+    }
 
     const InputState input = inputManager_.poll(uiState_.infoMenuOpen);
     uiManager_.handleInput(input, uiState_);
@@ -158,6 +191,13 @@ void GameplayLoopController::runFrame(float dt) {
         gameController_.clampCameraToMap(sceneManager_.getMapData(), screenWidth_, screenHeight_);
     }
 
+    if (easterEggManager_.isActivated() &&
+        sceneManager_.getCurrentSceneName() == "easter_egg" &&
+        easterEggManager_.isPlayerInScreamerZone(gameController_.getPlayerPos())) {
+        easterEggManager_.triggerScreamer(
+            AssetPathResolver::resolveAssetPath(executablePath_, "assets/ee/jumpscare.mp4"));
+    }
+
     BeginDrawing();
     ClearBackground({18, 20, 28, 255});
     BeginMode2D(gameController_.getCamera());
@@ -220,7 +260,12 @@ void GameplayLoopController::runFrame(float dt) {
                             resilienceService_,
                             transitions_,
                             sceneBootstrap_.sceneDataMap);
+    easterEggManager_.drawScreamerOverlay(screenWidth_, screenHeight_);
     EndDrawing();
+}
+
+bool GameplayLoopController::shouldExit() const {
+    return easterEggManager_.shouldCloseApplication();
 }
 
 void GameplayLoopController::updateNavigationOverlays() {

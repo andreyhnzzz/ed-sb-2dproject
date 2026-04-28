@@ -68,6 +68,9 @@ int ApplicationSession::run() {
 
         if (gameplayController_.has_value()) {
             gameplayController_->runFrame(dt);
+            if (gameplayController_->shouldExit()) {
+                exitRequested = true;
+            }
         }
     }
 
@@ -146,6 +149,7 @@ bool ApplicationSession::initializeNavigationDomain() {
 void ApplicationSession::initializeControllers() {
     gameplayController_.emplace(windowConfig_.width,
                                 windowConfig_.height,
+                                executablePath_,
                                 graph_,
                                 *navigationService_,
                                 scenarioManager_,
@@ -162,6 +166,7 @@ void ApplicationSession::initializeControllers() {
                                 runtimeBlockerService_,
                                 musicService_,
                                 soundEffectService_,
+                                easterEggManager_,
                                 sceneBootstrap_,
                                 routeScenes_,
                                 tabState_,
