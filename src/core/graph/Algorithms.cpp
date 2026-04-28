@@ -83,19 +83,28 @@ TraversalResult Algorithms::bfs(const CampusGraph& g, const std::string& start,
 }
 
 bool Algorithms::isConnected(const CampusGraph& g) {
+    return isConnected(g, true);
+}
+
+bool Algorithms::isConnected(const CampusGraph& g, bool respectBlockedEdges) {
     auto ids = g.nodeIds();
     if (ids.empty()) return true;
-    auto result = bfs(g, ids[0], false, true);
+    auto result = bfs(g, ids[0], false, !respectBlockedEdges);
     return result.nodes_visited == g.nodeCount();
 }
 
 std::vector<std::vector<std::string>> Algorithms::findComponents(const CampusGraph& g) {
+    return findComponents(g, true);
+}
+
+std::vector<std::vector<std::string>> Algorithms::findComponents(const CampusGraph& g,
+                                                                 bool respectBlockedEdges) {
     std::vector<std::vector<std::string>> components;
     std::unordered_set<std::string> globalVisited;
 
     for (auto& id : g.nodeIds()) {
         if (globalVisited.count(id)) continue;
-        auto result = bfs(g, id, false, true);
+        auto result = bfs(g, id, false, !respectBlockedEdges);
         std::vector<std::string> comp;
         for (auto& n : result.visit_order) {
             comp.push_back(n);

@@ -25,7 +25,10 @@ public:
     static TraversalResult bfs(const CampusGraph& g, const std::string& start,
                                 bool mobility_reduced, bool ignore_currently_blocked = false);
     static bool isConnected(const CampusGraph& g);
+    static bool isConnected(const CampusGraph& g, bool respectBlockedEdges);
     static std::vector<std::vector<std::string>> findComponents(const CampusGraph& g);
+    static std::vector<std::vector<std::string>> findComponents(const CampusGraph& g,
+                                                                bool respectBlockedEdges);
     static PathResult findPathDfs(const CampusGraph& g, const std::string& from,
                                    const std::string& to, bool mobility_reduced,
                                    bool ignore_currently_blocked = false);

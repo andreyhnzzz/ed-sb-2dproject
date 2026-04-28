@@ -1291,22 +1291,36 @@ void UIManager::renderInfoMenu(const RenderContext& ctx,
                      contentX, yRight, bodyMutedFont, muted);
             yRight += px(34);
 
-            Rectangle connBtn{static_cast<float>(contentX), static_cast<float>(yRight),
-                              static_cast<float>(px(240)), static_cast<float>(buttonHeight)};
-            if (drawRayButton(connBtn, "Verificar Conexidad", bodyFont, btn, btnHover, btnActive, white)) {
-                tabState.lastConnected = navService.checkConnectivity();
+            Rectangle practicalBtn{static_cast<float>(contentX), static_cast<float>(yRight),
+                                   static_cast<float>(px(240)), static_cast<float>(buttonHeight)};
+            Rectangle theoreticalBtn{static_cast<float>(contentX + px(252)), static_cast<float>(yRight),
+                                     static_cast<float>(px(240)), static_cast<float>(buttonHeight)};
+            if (drawRayButton(practicalBtn, "Conectividad Practica", bodyFont, btn, btnHover, btnActive, white)) {
+                tabState.lastConnected = navService.checkConnectivity(true);
                 tabState.hasConnectivityResult = true;
-                tabState.lastAction = "Connectivity";
+                tabState.lastConnectivityRespectsBlocks = true;
+                tabState.lastAction = "ConnectivityPractical";
+                soundEffectService.play(SoundEffectType::RouteFixated);
+            }
+            if (drawRayButton(theoreticalBtn, "Conexidad Teorica", bodyFont, btn, btnHover, btnActive, white)) {
+                tabState.lastConnected = navService.checkConnectivity(false);
+                tabState.hasConnectivityResult = true;
+                tabState.lastConnectivityRespectsBlocks = false;
+                tabState.lastAction = "ConnectivityTheoretical";
                 soundEffectService.play(SoundEffectType::RouteFixated);
             }
             yRight += px(48);
 
             if (tabState.hasConnectivityResult) {
+                DrawText(tabState.lastConnectivityRespectsBlocks ? "MODO: PRACTICO (RESPETA BLOQUEOS)"
+                                                                 : "MODO: TEORICO (IGNORA BLOQUEOS)",
+                         contentX, yRight, bodyFont, muted);
+                yRight += px(28);
                 DrawText(tabState.lastConnected ? "RESULTADO: CAMPUS CONEXO" : "RESULTADO: CAMPUS NO CONEXO",
                          contentX, yRight, bodyFont, tabState.lastConnected ? good : bad);
                 yRight += px(28);
 
-                const auto components = navService.getComponents();
+                const auto components = navService.getComponents(tabState.lastConnectivityRespectsBlocks);
                 DrawText(TextFormat("Componentes detectadas: %d", static_cast<int>(components.size())),
                          contentX, yRight, bodyFont, white);
                 yRight += px(26);
@@ -1742,10 +1756,18 @@ void UIManager::renderLegacyImGuiOverlay(State& state,
         tabState.lastAction = "BFS";
     }
     ImGui::SameLine();
-    if (ImGui::Button("Verificar Conexidad", ImVec2(170, 0))) {
-        tabState.lastConnected = navService.checkConnectivity();
+    if (ImGui::Button("Conectividad Practica", ImVec2(170, 0))) {
+        tabState.lastConnected = navService.checkConnectivity(true);
         tabState.hasConnectivityResult = true;
-        tabState.lastAction = "Connectivity";
+        tabState.lastConnectivityRespectsBlocks = true;
+        tabState.lastAction = "ConnectivityPractical";
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Conexidad Teorica", ImVec2(170, 0))) {
+        tabState.lastConnected = navService.checkConnectivity(false);
+        tabState.hasConnectivityResult = true;
+        tabState.lastConnectivityRespectsBlocks = false;
+        tabState.lastAction = "ConnectivityTheoretical";
     }
 
     if (ImGui::Button("Buscar Camino DFS", ImVec2(170, 0))) {

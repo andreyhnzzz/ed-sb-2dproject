@@ -40,6 +40,7 @@ struct TabManagerState {
     AlgorithmComparison lastComparison;
     bool hasComparison{false};
     bool hasConnectivityResult{false};
+    bool lastConnectivityRespectsBlocks{true};
     std::string lastAction;
 
     CampusValidationReport validation;

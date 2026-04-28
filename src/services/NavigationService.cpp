@@ -22,6 +22,14 @@ bool NavigationService::checkConnectivity() const {
     return Algorithms::isConnected(graph_);
 }
 
+bool NavigationService::checkConnectivity(bool respectBlockedEdges) const {
+    return Algorithms::isConnected(graph_, respectBlockedEdges);
+}
+
 std::vector<std::vector<std::string>> NavigationService::getComponents() const {
     return Algorithms::findComponents(graph_);
+}
+
+std::vector<std::vector<std::string>> NavigationService::getComponents(bool respectBlockedEdges) const {
+    return Algorithms::findComponents(graph_, respectBlockedEdges);
 }

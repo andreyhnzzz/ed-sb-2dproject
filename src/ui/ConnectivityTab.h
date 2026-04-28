@@ -12,12 +12,16 @@ public:
     ConnectivityTab(NavigationService& nav, const CampusGraph& graph, QWidget* parent = nullptr);
 
 private slots:
-    void onCheckConnectivity();
+    void onCheckPracticalConnectivity();
+    void onCheckTheoreticalConnectivity();
 
 private:
+    void runConnectivityCheck(bool respectBlockedEdges);
+
     NavigationService& nav_;
     const CampusGraph& graph_;
-    QPushButton* btn_check_{nullptr};
+    QPushButton* btn_check_practical_{nullptr};
+    QPushButton* btn_check_theoretical_{nullptr};
     QLabel* lbl_result_{nullptr};
     QListWidget* list_components_{nullptr};
 };

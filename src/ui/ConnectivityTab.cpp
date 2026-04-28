@@ -1,4 +1,5 @@
 #include "ConnectivityTab.h"
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QLabel>
 
@@ -6,8 +7,12 @@ ConnectivityTab::ConnectivityTab(NavigationService& nav, const CampusGraph& grap
     : QWidget(parent), nav_(nav), graph_(graph)
 {
     auto* layout = new QVBoxLayout(this);
-    btn_check_ = new QPushButton("Verificar Conexidad", this);
-    layout->addWidget(btn_check_);
+    auto* buttonRow = new QHBoxLayout();
+    btn_check_practical_ = new QPushButton("Conectividad Practica", this);
+    btn_check_theoretical_ = new QPushButton("Conexidad Teorica", this);
+    buttonRow->addWidget(btn_check_practical_);
+    buttonRow->addWidget(btn_check_theoretical_);
+    layout->addLayout(buttonRow);
     lbl_result_ = new QLabel(this);
     lbl_result_->setWordWrap(true);
     layout->addWidget(lbl_result_);
@@ -15,18 +20,32 @@ ConnectivityTab::ConnectivityTab(NavigationService& nav, const CampusGraph& grap
     list_components_ = new QListWidget(this);
     layout->addWidget(list_components_);
 
-    connect(btn_check_, &QPushButton::clicked, this, &ConnectivityTab::onCheckConnectivity);
+    connect(btn_check_practical_, &QPushButton::clicked,
+            this, &ConnectivityTab::onCheckPracticalConnectivity);
+    connect(btn_check_theoretical_, &QPushButton::clicked,
+            this, &ConnectivityTab::onCheckTheoreticalConnectivity);
 }
 
-void ConnectivityTab::onCheckConnectivity() {
-    bool connected = nav_.checkConnectivity();
-    auto components = nav_.getComponents();
+void ConnectivityTab::onCheckPracticalConnectivity() {
+    runConnectivityCheck(true);
+}
+
+void ConnectivityTab::onCheckTheoreticalConnectivity() {
+    runConnectivityCheck(false);
+}
+
+void ConnectivityTab::runConnectivityCheck(bool respectBlockedEdges) {
+    const bool connected = nav_.checkConnectivity(respectBlockedEdges);
+    const auto components = nav_.getComponents(respectBlockedEdges);
+    const QString modeLabel = respectBlockedEdges ? "Conectividad practica" : "Conexidad teorica";
 
     if (connected) {
-        lbl_result_->setText("El grafo ES conexo. Todos los nodos son accesibles desde cualquier punto.");
+        lbl_result_->setText(QString("%1: el grafo ES conexo. Todos los nodos son accesibles desde cualquier punto.")
+                                 .arg(modeLabel));
         lbl_result_->setStyleSheet("color: green; font-weight: bold;");
     } else {
-        lbl_result_->setText(QString("El grafo NO es conexo. Hay %1 componentes.")
+        lbl_result_->setText(QString("%1: el grafo NO es conexo. Hay %2 componentes.")
+                                 .arg(modeLabel)
                                  .arg(components.size()));
         lbl_result_->setStyleSheet("color: red; font-weight: bold;");
     }

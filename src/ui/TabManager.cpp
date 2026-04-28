@@ -277,11 +277,27 @@ static void renderAcademicControlPanelContent(
         }
 
         if (ImGui::BeginTabItem("3.Connectivity")) {
-            if (ImGui::Button("Check connectivity")) {
-                state.lastConnected = navService.checkConnectivity();
-                state.lastAction = "Connectivity";
+            if (ImGui::Button("Check practical connectivity")) {
+                state.lastConnected = navService.checkConnectivity(true);
+                state.hasConnectivityResult = true;
+                state.lastConnectivityRespectsBlocks = true;
+                state.lastAction = "ConnectivityPractical";
             }
-            ImGui::Text("Status: %s", state.lastConnected ? "Connected" : "Not connected");
+            ImGui::SameLine();
+            if (ImGui::Button("Check theoretical connectivity")) {
+                state.lastConnected = navService.checkConnectivity(false);
+                state.hasConnectivityResult = true;
+                state.lastConnectivityRespectsBlocks = false;
+                state.lastAction = "ConnectivityTheoretical";
+            }
+            if (state.hasConnectivityResult) {
+                ImGui::Text("Mode: %s",
+                            state.lastConnectivityRespectsBlocks ? "Practical (respect blocked edges)"
+                                                                 : "Theoretical (ignore blocked edges)");
+                ImGui::Text("Status: %s", state.lastConnected ? "Connected" : "Not connected");
+            } else {
+                ImGui::TextUnformatted("Choose practical or theoretical connectivity.");
+            }
             ImGui::EndTabItem();
         }
 
